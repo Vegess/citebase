@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pip install -r requirements.txt)"
+    ]
+  }
+}
