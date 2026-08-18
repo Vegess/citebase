@@ -35,6 +35,13 @@ def get_collection():
     )
 
 
+def _sanitize_extracted_text(text: str) -> str:
+    text = text.replace("\x00", "")
+    text = re.sub(r"[\u200B-\u200D\u2060\uFEFF]", "", text)
+    text = "".join(ch for ch in text if ch.isprintable() or ch in "\n\r\t")
+    return text
+
+
 def _split_paragraphs(text: str) -> list[str]:
     return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
@@ -52,6 +59,7 @@ def _chunk_long_sentence(sentence: str, max_size: int) -> list[str]:
 
 def chunk_text(text: str, target_size: int = 800, overlap_sentences: int = 2) -> list[str]:
     """Chunk text on paragraph and sentence boundaries with controlled overlap."""
+    text = _sanitize_extracted_text(text)
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
@@ -86,6 +94,7 @@ def chunk_text(text: str, target_size: int = 800, overlap_sentences: int = 2) ->
 
 def ingest_document(doc_id: str, org_id: str, filename: str, text: str) -> int:
     """Chunk, embed, and store a document. Returns number of chunks."""
+    text = _sanitize_extracted_text(text)[: settings.max_document_chars]
     chunks = chunk_text(text)
     if not chunks:
         return 0

@@ -1,8 +1,11 @@
 """Document routes: upload (PDF or txt), list, delete — all org-scoped."""
 import io
+import os
+import re
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
 from pypdf import PdfReader
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,6 +14,7 @@ from app.core.database import SessionLocal, get_db
 from app.core.security import get_current_user
 from app.models.models import Document, User
 from app.models.schemas import DocumentOut
+from app.routes.chat import limiter
 from app.services.rag import delete_document_chunks, ingest_document
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -38,28 +42,57 @@ def _process_document_background(doc_id: str, org_id: str, filename: str, text: 
 ALLOWED_TYPES = {"application/pdf", "text/plain"}
 
 
+def _sanitize_filename(name: str | None) -> str:
+    value = (name or "untitled").replace("\\", "/")
+    value = value.rsplit("/", 1)[-1]
+    value = value.replace("\x00", "")
+    value = re.sub(r"[\x00-\x1f\x7f]+", "", value)
+    value = value.strip(" .")
+    return value or "untitled"
+
+
 def _extract_text(file: UploadFile, raw: bytes) -> str:
-    if file.content_type == "application/pdf":
+    if raw.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(raw))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    return raw.decode("utf-8", errors="replace")
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        return re.sub(r"[\u200B-\u200D\u2060\uFEFF]", "", text)[: settings.max_document_chars]
+    text = raw.decode("utf-8", errors="replace")
+    return re.sub(r"[\u200B-\u200D\u2060\uFEFF]", "", text)[: settings.max_document_chars]
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
+@limiter.limit("20/minute", key_func=lambda request: f"{get_remote_address(request)}:{request.headers.get('authorization', '').split('Bearer ', 1)[-1][:32]}")
 def upload_document(
+    request: Request,
     file: UploadFile,
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if file.content_type not in ALLOWED_TYPES:
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB limit")
+
+    if file.content_type and file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=415, detail="Only PDF and plain text files are supported")
 
     raw = file.file.read()
-    if len(raw) > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB limit")
+    if raw.startswith(b"%PDF-"):
+        detected_type = "application/pdf"
+    else:
+        try:
+            raw.decode("utf-8")
+            detected_type = "text/plain"
+        except UnicodeDecodeError:
+            detected_type = "binary"
 
-    doc = Document(org_id=user.org_id, uploaded_by=user.id, filename=file.filename or "untitled")
+    if detected_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=415, detail="Only PDF and plain text files are supported")
+
+    safe_name = _sanitize_filename(file.filename)
+    doc = Document(org_id=user.org_id, uploaded_by=user.id, filename=safe_name)
     db.add(doc)
     db.commit()
     db.refresh(doc)

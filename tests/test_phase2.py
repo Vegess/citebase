@@ -29,10 +29,21 @@ def test_chat_uses_conversation_memory(app_client):
     )
     assert upload.status_code == 201
 
-    first = app_client.post("/chat/ask", json={"question": "Hello"}, headers=headers)
+    conversation = app_client.post("/chat/conversations", headers=headers).json()
+    conversation_id = conversation["id"]
+
+    first = app_client.post(
+        "/chat/ask",
+        json={"question": "Hello", "conversation_id": conversation_id},
+        headers=headers,
+    )
     assert first.status_code == 200
 
-    second = app_client.post("/chat/ask", json={"question": "Follow up question"}, headers=headers)
+    second = app_client.post(
+        "/chat/ask",
+        json={"question": "Follow up question", "conversation_id": conversation_id},
+        headers=headers,
+    )
     assert second.status_code == 200
 
     from app.services import generation
@@ -40,3 +51,19 @@ def test_chat_uses_conversation_memory(app_client):
     assert generation.last_request_messages is not None
     assert any("Hello" in message["content"] for message in generation.last_request_messages)
     assert any("Follow up question" in message["content"] for message in generation.last_request_messages)
+
+
+def test_cross_org_conversation_access_returns_404(app_client):
+    signup(app_client, "owner@example.com", org_name="Alpha")
+    owner_token = login(app_client, "owner@example.com").json()["access_token"]
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+    signup(app_client, "viewer@example.com", org_name="Beta")
+    viewer_token = login(app_client, "viewer@example.com").json()["access_token"]
+    viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
+
+    created = app_client.post("/chat/conversations", headers=owner_headers).json()
+
+    response = app_client.get(f"/chat/conversations/{created['id']}", headers=viewer_headers)
+
+    assert response.status_code == 404

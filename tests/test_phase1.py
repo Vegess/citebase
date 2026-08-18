@@ -47,6 +47,25 @@ def test_requests_without_token_return_401(app_client):
     assert resp.status_code == 401
 
 
+def test_production_hides_docs_and_openapi(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    import app.core.database as database_module
+    import app.main as main_module
+    import sys
+
+    for name in list(sys.modules):
+        if name == "app" or name.startswith("app."):
+            sys.modules.pop(name, None)
+
+    import importlib
+    importlib.invalidate_caches()
+    main_module = importlib.import_module("app.main")
+
+    assert main_module.app.docs_url is None
+    assert main_module.app.redoc_url is None
+    assert main_module.app.openapi_url is None
+
+
 def test_upload_validation_errors(app_client):
     signup_resp = signup(app_client, "uploader@example.com")
     assert signup_resp.status_code == 201
@@ -67,6 +86,76 @@ def test_upload_validation_errors(app_client):
         headers=headers,
     )
     assert oversized.status_code == 413
+
+
+def test_sql_and_vector_queries_are_org_scoped(app_client):
+    org_a = signup(app_client, "orga@example.com", org_name="OrgA")
+    org_b = signup(app_client, "orgb@example.com", org_name="OrgB")
+    assert org_a.status_code == 201
+    assert org_b.status_code == 201
+
+    token_a = login(app_client, "orga@example.com").json()["access_token"]
+    token_b = login(app_client, "orgb@example.com").json()["access_token"]
+
+    from app.core.database import SessionLocal
+    from app.models.models import Document, Org
+    from sqlalchemy import select
+
+    doc_a = app_client.post(
+        "/documents",
+        files={"file": ("alpha.txt", b"Alpha doc for OrgA.", "text/plain")},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    doc_b = app_client.post(
+        "/documents",
+        files={"file": ("beta.txt", b"Beta doc for OrgB.", "text/plain")},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert doc_a.status_code == 201
+    assert doc_b.status_code == 201
+
+    with SessionLocal() as db:
+        org_a_record = db.scalar(select(Org).where(Org.name == "OrgA"))
+        org_b_record = db.scalar(select(Org).where(Org.name == "OrgB"))
+        sql_rows = db.scalars(select(Document).where(Document.org_id == org_a_record.id)).all()
+        assert [row.filename for row in sql_rows] == ["alpha.txt"]
+        assert not any(row.org_id == org_b_record.id for row in sql_rows)
+
+    from app.services import rag
+    collection = rag.get_collection()
+    vector_results = collection.query(query_embeddings=[[0.0, 0.0, 0.0]], n_results=10, where={"org_id": org_a_record.id})
+    vector_names = [meta["filename"] for meta in vector_results["metadatas"][0]]
+    assert vector_names == ["alpha.txt"]
+    assert all(meta["org_id"] != org_b_record.id for meta in vector_results["metadatas"][0])
+
+
+def test_document_delete_removes_vector_entries(app_client):
+    signup_resp = signup(app_client, "deleter@example.com", org_name="DeleteOrg")
+    assert signup_resp.status_code == 201
+    token = login(app_client, "deleter@example.com").json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    upload_resp = app_client.post(
+        "/documents",
+        files={"file": ("delete-me.txt", b"This file should disappear after deletion.", "text/plain")},
+        headers=headers,
+    )
+    assert upload_resp.status_code == 201
+    doc_id = upload_resp.json()["id"]
+
+    r1 = app_client.get("/documents", headers=headers)
+    assert any(doc["id"] == doc_id for doc in r1.json())
+
+    delete_resp = app_client.delete(f"/documents/{doc_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    r2 = app_client.get("/documents", headers=headers)
+    assert all(doc["id"] != doc_id for doc in r2.json())
+
+    from app.services import rag
+    collection = rag.get_collection()
+    results = collection.query(query_embeddings=[[0.0, 0.0, 0.0]], n_results=10, where={"org_id": signup_resp.json().get("org_id", "")})
+    assert all(item["doc_id"] != doc_id for item in results["metadatas"][0])
 
 
 def test_org_isolation_blocks_other_org_chunks(app_client):

@@ -1,8 +1,8 @@
 # DocuMind — Company Docs RAG Assistant
 
-Upload your company documents, ask questions, get cited answers powered by Claude.
+Upload your company documents, ask questions, get cited answers powered by your chosen LLM provider.
 
-**Stack:** FastAPI · SQLite / SQLAlchemy · ChromaDB · sentence-transformers · Claude API (claude-sonnet-4-6)
+**Stack:** FastAPI · SQLite / SQLAlchemy · ChromaDB · sentence-transformers · Groq / Gemini / Anthropic providers
 
 ## Current status
 
@@ -99,4 +99,10 @@ uvicorn app.main:app --reload
 
 - Do not store secrets in version control.
 - Keep `.env` out of Git.
-- The repo is ready for Claude integration and deployment review.
+- The repo supports three LLM providers:
+
+- Groq (default): set LLM_PROVIDER=groq and provide GROQ_API_KEY
+- Google Gemini: set LLM_PROVIDER=gemini and provide GOOGLE_API_KEY
+- Anthropic Claude: set LLM_PROVIDER=anthropic and provide ANTHROPIC_API_KEY
+
+Switch providers by updating the LLM_PROVIDER value in your .env file. The app will use the active provider automatically at startup and will fall back to the local answer builder when the active provider key is missing.

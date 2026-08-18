@@ -58,6 +58,8 @@ def test_chat_streaming_endpoint_returns_sse(app_client):
         assert response.headers["content-type"].startswith("text/event-stream")
 
         body = b"".join(response.iter_bytes())
-        assert b"data: stub" in body
-        assert b"data: bed" in body
-        assert b"data:  answer" in body
+        assert b'data: {"text": "stub"}' in body
+        assert b'data: {"text": "bed"}' in body
+        assert b'data: {"text": " answer"}' in body
+        assert b'data: {"citations": [{"filename": "doc.txt", "chunk_index": 0}]}' in body
+        assert b"data: [DONE]" in body

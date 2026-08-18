@@ -46,9 +46,14 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") not in {"HS256"}:
+            raise JWTError("Rejected token algorithm")
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
         user_id: str | None = payload.get("sub")
         if user_id is None:
+            raise credentials_error
+        if payload.get("exp") is None:
             raise credentials_error
     except JWTError:
         raise credentials_error

@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------
+   DocuMind design tokens
+
+   The product turns filed documents into answers you can verify.
+   The palette borrows from the document world: ink, paper, ruled
+   margins. One signal blue carries every action; a deep teal is
+   reserved exclusively for sources and citations, so "where did
+   this come from" always looks different from "do something".
+---------------------------------------------------------------- */
+@theme {
+  --color-ink: #12181f;
+  --color-ink-soft: #3d4652;
+  --color-muted: #6b7280;
+
+  --color-paper: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-rule: #e3e3dc;
+  --color-rule-soft: #eeeee8;
+
+  --color-signal: #2d5bff;
+  --color-signal-soft: #eaefff;
+
+  --color-source: #0f7a6b;
+  --color-source-soft: #e6f2f0;
+
+  --color-warn: #9a5b00;
+  --color-warn-soft: #fdf3e2;
+  --color-danger: #a32020;
+  --color-danger-soft: #fdeceb;
+
+  --font-display: "Newsreader", Georgia, serif;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html {
+  background: var(--color-paper);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+/* Signature: assistant answers sit against a ruled margin, the way
+   an annotated document does. */
+.ruled-margin {
+  border-left: 1px solid var(--color-rule);
+  padding-left: 1.25rem;
+}
+
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.stream-caret::after {
+  content: "▍";
+  margin-left: 1px;
+  color: var(--color-signal);
+  animation: caret-blink 1s step-end infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-caret::after,
+  .pulse-soft {
+    animation: none;
+  }
+}

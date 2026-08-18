@@ -26,6 +26,7 @@ class Org(Base):
 
     users: Mapped[list["User"]] = relationship(back_populates="org")
     documents: Mapped[list["Document"]] = relationship(back_populates="org")
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="org")
 
 
 class User(Base):
@@ -54,12 +55,34 @@ class Document(Base):
     org: Mapped[Org] = relationship(back_populates="documents")
 
 
-class ChatMessage(Base):
-    __tablename__ = "chat_messages"
+class Conversation(Base):
+    __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="New conversation")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    org: Mapped[Org] = relationship(back_populates="conversations")
+    messages: Mapped[list["ConversationMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationMessage.created_at",
+    )
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(10), nullable=False)  # user | assistant
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")

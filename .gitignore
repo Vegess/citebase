@@ -1,6 +1,13 @@
 .env
-__pycache__/
-*.pyc
+web/.env
+*.db
 chroma_data/
 .venv/
 venv/
+web/node_modules/
+.pytest_cache/
+.pytest-tmp/
+out.txt
+check_db.py
+__pycache__/
+*.pyc

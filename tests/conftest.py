@@ -13,6 +13,7 @@ def app_client(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("CHROMA_PERSIST_DIR", str(chroma_dir))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
 
@@ -60,6 +61,16 @@ def app_client(monkeypatch, tmp_path):
 
     generation_module.last_request_messages = None
 
+    class FakeStream:
+        def __init__(self, chunks):
+            self.text_stream = chunks
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
     class FakeMessages:
         def create(self, *args, **kwargs):
             generation_module.last_request_messages = kwargs.get("messages")
@@ -67,18 +78,31 @@ def app_client(monkeypatch, tmp_path):
 
         def stream(self, *args, **kwargs):
             generation_module.last_request_messages = kwargs.get("messages")
-            for chunk in ["stub", "bed", " answer"]:
-                yield SimpleNamespace(type="response.output_text.delta", delta=chunk)
-            yield SimpleNamespace(type="response.completed")
+            return FakeStream(["stub", "bed", " answer"])
 
     class FakeAnthropicClient:
         def __init__(self, *args, **kwargs):
             self.messages = FakeMessages()
 
+    class FakeGroqClient:
+        def __init__(self, *args, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda *args, **kwargs: SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content="stubbed answer"))]
+                    )
+                )
+            )
+
+    def fake_get_client():
+        if generation_module.settings.llm_provider == "groq":
+            return FakeGroqClient()
+        return FakeAnthropicClient()
+
     monkeypatch.setattr(rag_module, "get_embedder", fake_get_embedder)
     monkeypatch.setattr(rag_module, "get_collection", lambda: fake_collection)
     monkeypatch.setattr(documents_module, "delete_document_chunks", lambda doc_id, org_id: None)
-    monkeypatch.setattr(generation_module, "get_client", lambda: FakeAnthropicClient())
+    monkeypatch.setattr(generation_module, "get_client", fake_get_client)
 
     database_module.Base.metadata.drop_all(bind=database_module.engine)
     database_module.Base.metadata.create_all(bind=database_module.engine)
