@@ -53,7 +53,7 @@ function Message({ message }) {
 export default function ChatPage() {
   const { token } = useAuth();
   const notify = useToast();
-  const { conversationId, setConversationId } = useConversationState();
+  const { conversationId, setConversationId, clearConversationId } = useConversationState();
   const [messages, setMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
   const [question, setQuestion] = useState("");
@@ -62,27 +62,49 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!token) return;
-    Promise.all([api.listConversations(token), api.getConversation(token, conversationId)])
-      .then(([list, detail]) => {
+    let cancelled = false;
+
+    async function loadConversation() {
+      try {
+        const list = await api.listConversations(token);
+        if (cancelled) return;
         setConversations(list);
-        if (detail) {
-          setMessages(
-            detail.messages.map((m) => ({
-              id: m.id,
-              role: m.role,
-              content: m.content,
-              citations: m.citations || [],
-            })),
-          );
-        } else {
+
+        if (!conversationId) {
           setMessages([]);
+          return;
         }
-      })
-      .catch(() => {
-        setConversations([]);
+
+        if (!list.some((conversation) => conversation.id === conversationId)) {
+          clearConversationId();
+          setMessages([]);
+          return;
+        }
+
+        const detail = await api.getConversation(token, conversationId);
+        if (cancelled) return;
+        setMessages(
+          detail.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            citations: m.citations || [],
+          })),
+        );
+      } catch (err) {
+        if (cancelled) return;
+        if (err.status === 404) {
+          clearConversationId();
+        }
         setMessages([]);
-      });
-  }, [token, conversationId]);
+      }
+    }
+
+    loadConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, conversationId, clearConversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

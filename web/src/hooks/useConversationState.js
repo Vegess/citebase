@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 const STORAGE_KEY = "documind-active-conversation";
@@ -14,7 +14,14 @@ export function useConversationState() {
   });
 
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // ignore storage failures
+      }
+      return;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, conversationId);
     } catch {
@@ -34,5 +41,12 @@ export function useConversationState() {
     }
   }, [conversationId, location.pathname]);
 
-  return useMemo(() => ({ conversationId, setConversationId }), [conversationId, setConversationId]);
+  const clearConversationId = useCallback(() => {
+    setConversationId(null);
+  }, []);
+
+  return useMemo(
+    () => ({ conversationId, setConversationId, clearConversationId }),
+    [conversationId, clearConversationId],
+  );
 }
