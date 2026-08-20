@@ -115,8 +115,9 @@ def ingest_document(doc_id: str, org_id: str, filename: str, text: str) -> int:
     return len(chunks)
 
 
-def retrieve_chunks(org_id: str, query: str, top_k: int = 5) -> list[dict]:
+def retrieve_chunks(org_id: str, query: str, top_k: int | None = None) -> list[dict]:
     """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org."""
+    top_k = top_k if top_k is not None else settings.retrieval_top_k
     embedder = get_embedder()
     query_embedding = embedder.encode([query], show_progress_bar=False).tolist()
 

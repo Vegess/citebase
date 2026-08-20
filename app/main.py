@@ -17,10 +17,11 @@ from slowapi.errors import RateLimitExceeded
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.core.database import Base, engine
+from app.core.database import SessionLocal
 import app.models.models  # noqa: F401
 from app.routes import auth, chat, documents, users
 from app.routes.chat import limiter
+from app.services.quota import get_usage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,9 +61,6 @@ async def validation_exception_handler(request, exc):
     logger.exception("Validation error for %s %s", request.method, request.url.path, exc_info=exc)
     return JSONResponse(status_code=422, content={"detail": "Validation error"})
 
-# Ensure database schema exists on startup.
-Base.metadata.create_all(bind=engine)
-
 # Comma-separated list, e.g. "http://localhost:5173,http://127.0.0.1:5173"
 origins = [
     o.strip()
@@ -86,4 +84,11 @@ app.include_router(chat.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    with SessionLocal() as db:
+        questions_today = get_usage(db)
+    return {
+        "status": "ok",
+        "questions_today": questions_today,
+        "daily_cap": settings.daily_question_cap,
+        "quota_remaining": max(0, settings.daily_question_cap - questions_today),
+    }

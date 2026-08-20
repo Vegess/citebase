@@ -2,6 +2,7 @@
 import json
 import logging
 import time
+from itertools import chain
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_db
+from app.core.config import get_settings
 from app.core.security import get_current_user
 from app.models.models import Conversation, ConversationMessage, User
 from app.models.schemas import (
@@ -23,12 +25,14 @@ from app.models.schemas import (
     ConversationMessageOut,
     ConversationOut,
 )
-from app.services.generation import generate_answer, stream_answer
+from app.services.generation import GroqRateLimitExceeded, generate_answer, stream_answer
+from app.services.quota import release_question, reserve_question
 from app.services.rag import retrieve_chunks
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 limiter = Limiter(key_func=get_remote_address)
 logger = logging.getLogger("app.routes.chat")
+settings = get_settings()
 
 
 def _user_ip_key(request: Request) -> str:
@@ -133,10 +137,19 @@ def ask(
 ):
     start = time.perf_counter()
     conversation = _ensure_conversation(body, user, db)
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=5)
+    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k)
     history = _load_history(conversation, db)
 
-    answer = generate_answer(body.question, chunks, prior_turns=history)
+    reserve_question(db, user.id)
+    try:
+        answer = generate_answer(body.question, chunks, prior_turns=history)
+    except GroqRateLimitExceeded:
+        release_question(db, user.id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="The demo is busy right now. Please try again in a moment.",
+            headers={"Retry-After": "2"},
+        )
 
     if conversation is None:
         conversation = Conversation(org_id=user.org_id, user_id=user.id, title=body.question[:80] or "New conversation")
@@ -187,15 +200,31 @@ def ask_stream(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    user_id = user.id
+    org_id = user.org_id
     conversation = _ensure_conversation(body, user, db)
+    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k)
+    history = _load_history(conversation, db)
+    reserve_question(db, user_id)
+
     if conversation is None:
         conversation = Conversation(org_id=user.org_id, user_id=user.id, title=body.question[:80] or "New conversation")
         db.add(conversation)
         db.flush()
         db.refresh(conversation)
+    db.commit()
     conversation_id = conversation.id
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=5)
-    history = _load_history(conversation, db)
+    answer_stream = stream_answer(body.question, chunks, prior_turns=history)
+    try:
+        first_chunk = next(answer_stream)
+    except GroqRateLimitExceeded:
+        release_question(db, user_id)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="The demo is busy right now. Please try again in a moment.",
+            headers={"Retry-After": "2"},
+        )
 
     def event_generator():
         start = time.perf_counter()
@@ -206,15 +235,15 @@ def ask_stream(
             local_db.add(
                 ConversationMessage(
                     conversation_id=conversation_id,
-                    org_id=user.org_id,
-                    user_id=user.id,
+                    org_id=org_id,
+                    user_id=user_id,
                     role="user",
                     content=body.question,
                 )
             )
             local_db.flush()
 
-            for chunk in stream_answer(body.question, chunks, prior_turns=history):
+            for chunk in chain([first_chunk], answer_stream):
                 full_answer += chunk
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
 
@@ -227,8 +256,8 @@ def ask_stream(
             local_db.add(
                 ConversationMessage(
                     conversation_id=conversation_id,
-                    org_id=user.org_id,
-                    user_id=user.id,
+                    org_id=org_id,
+                    user_id=user_id,
                     role="assistant",
                     content=full_answer,
                     citations=json.dumps(citations),
@@ -239,8 +268,8 @@ def ask_stream(
             latency_ms = int((time.perf_counter() - start) * 1000)
             logger.info(
                 "chat.ask.stream completed user_id=%s org_id=%s latency_ms=%s retrieved_chunks=%s",
-                user.id,
-                user.org_id,
+                user_id,
+                org_id,
                 latency_ms,
                 len(chunks),
             )

@@ -1,9 +1,9 @@
 """Database models. Every tenant-owned table carries org_id — this is the
 backbone of multi-tenant isolation (security concern #3)."""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer
+from sqlalchemy import Date, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -86,3 +86,13 @@ class ConversationMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class QuestionUsage(Base):
+    __tablename__ = "question_usage"
+    __table_args__ = (UniqueConstraint("usage_date", "scope", name="uq_question_usage_date_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    usage_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

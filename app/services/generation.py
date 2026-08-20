@@ -7,11 +7,12 @@ Prompt-injection defense (security concern #2):
 """
 import logging
 import re
+import time
 
 from anthropic import Anthropic
 from google import genai
 from google.genai import types
-from groq import Groq
+from groq import Groq, RateLimitError
 
 from app.core.config import get_settings
 
@@ -22,6 +23,10 @@ _gemini_client: object | None = None
 _groq_client: Groq | None = None
 
 logger = logging.getLogger("app.services.generation")
+
+
+class GroqRateLimitExceeded(Exception):
+    """Raised when Groq remains rate-limited after one retry."""
 
 
 def get_client():
@@ -62,19 +67,28 @@ def _sanitize_text(text: str | None) -> str:
 
 
 def _build_messages(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> list[dict]:
-    context_blocks = "\n\n".join(
-        f'<document filename="{c["filename"]}" chunk="{c["chunk_index"]}">\n{_sanitize_text(c["text"])}\n</document>'
-        for c in chunks
-    )
+    context_blocks = []
+    context_limit = getattr(settings, "max_context_chars", 8_000)
+    for chunk in chunks:
+        block = (
+            f'<document filename="{chunk["filename"]}" chunk="{chunk["chunk_index"]}">\n'
+            f'{_sanitize_text(chunk["text"])}\n</document>'
+        )
+        separator = "\n\n" if context_blocks else ""
+        if len(separator) + len(block) <= context_limit - sum(len(item) for item in context_blocks):
+            context_blocks.append(separator + block)
+
+    context_text = "".join(context_blocks)
 
     user_message = (
-        f"Here are the relevant document excerpts:\n\n{context_blocks}\n\n"
+        f"Here are the relevant document excerpts:\n\n{context_text}\n\n"
         f"Question: {_sanitize_text(question)}"
     )
 
     messages = []
     if prior_turns:
-        for turn in prior_turns:
+        max_prior_turns = getattr(settings, "max_prior_turns", 2)
+        for turn in prior_turns[-(max_prior_turns * 2):]:
             role = turn.get("role")
             content = turn.get("content")
             if role == "system":
@@ -182,24 +196,46 @@ def _stream_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | 
 def _generate_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
     messages = _build_messages(question, chunks, prior_turns)
     client = get_client()
-    response = client.chat.completions.create(
-        model=settings.groq_model,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-    )
-    return response.choices[0].message.content
+    for attempt in range(2):
+        try:
+            response = client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+            )
+            return response.choices[0].message.content
+        except RateLimitError as error:
+            _log_groq_rate_limit(error, attempt)
+            if attempt == 1:
+                raise GroqRateLimitExceeded from error
+            time.sleep(2)
 
 
 def _stream_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
     messages = _build_messages(question, chunks, prior_turns)
     client = get_client()
-    stream = client.chat.completions.create(
-        model=settings.groq_model,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-        stream=True,
-    )
-    for chunk in stream:
-        if chunk.choices and getattr(chunk.choices[0].delta, "content", None):
-            yield chunk.choices[0].delta.content
+    for attempt in range(2):
+        try:
+            stream = client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and getattr(chunk.choices[0].delta, "content", None):
+                    yield chunk.choices[0].delta.content
+            return
+        except RateLimitError as error:
+            _log_groq_rate_limit(error, attempt)
+            if attempt == 1:
+                raise GroqRateLimitExceeded from error
+            time.sleep(2)
+
+
+def _log_groq_rate_limit(error: RateLimitError, attempt: int) -> None:
+    body = getattr(error, "body", None)
+    body_error = body.get("error", {}) if isinstance(body, dict) else {}
+    scope = getattr(error, "code", None) or body_error.get("code") or "unknown"
+    logger.warning("Groq rate limit encountered scope=%s retry=%s", scope, attempt == 0)
 
 
 def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
@@ -236,6 +272,8 @@ def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] |
     if active_provider == "groq":
         try:
             return _generate_groq(question, chunks, prior_turns)
+        except GroqRateLimitExceeded:
+            raise
         except Exception:
             logger.exception("Groq call failed; falling back to local answer")
             return _build_local_answer(question, chunks)
@@ -282,6 +320,8 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
     if active_provider == "groq":
         try:
             yield from _stream_groq(question, chunks, prior_turns)
+        except GroqRateLimitExceeded:
+            raise
         except Exception:
             logger.exception("Groq streaming failed; falling back to local answer")
             yield _build_local_answer(question, chunks)

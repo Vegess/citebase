@@ -41,7 +41,7 @@ function Message({ message }) {
 
   return (
     <div className="ruled-margin">
-      <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
+      <p className={`whitespace-pre-wrap text-[15px] leading-relaxed ${message.quota ? "text-source" : "text-ink"}`}>
         {message.content}
         {message.streaming && <span className="stream-caret" />}
       </p>
@@ -158,11 +158,24 @@ export default function ChatPage() {
       });
       updateLast({ streaming: false });
     } catch (err) {
+      if (err?.status === 429) {
+        const detail = err.detail || "The demo is busy right now. Please try again in a moment.";
+        updateLast({ content: detail, streaming: false, quota: true });
+        notify(detail, "info");
+        return;
+      }
+
       // Fall back to the non-streaming endpoint before giving up on the answer.
       try {
         const res = await api.ask(token, asked, activeConversationId);
         updateLast({ content: res.answer, citations: res.citations, streaming: false });
       } catch (fallbackErr) {
+        if (fallbackErr?.status === 429) {
+          const detail = fallbackErr.detail || "The demo is busy right now. Please try again in a moment.";
+          updateLast({ content: detail, streaming: false, quota: true });
+          notify(detail, "info");
+          return;
+        }
         const status = fallbackErr?.status ?? err?.status ?? "unknown";
         const detail = fallbackErr?.detail ?? err?.detail ?? fallbackErr?.message ?? err?.message ?? "The server did not provide more detail.";
         updateLast({

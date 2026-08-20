@@ -17,7 +17,7 @@ python-multipart==0.0.20
 
 # RAG pipeline
 anthropic==0.115.1
-groq
+groq==0.13.1
 google-genai==1.0.0
 sentence-transformers==3.3.1
 chromadb>=1.0

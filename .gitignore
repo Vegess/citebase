@@ -11,3 +11,9 @@ out.txt
 check_db.py
 __pycache__/
 *.pyc
+
+.pytest-tmp*
+
+.pytest-tmp*
+
+*.db

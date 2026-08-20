@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     claude_model: str = "claude-sonnet-4-6"
     max_upload_mb: int = 20
     max_document_chars: int = 200_000
+    retrieval_top_k: int = 3
+    max_prior_turns: int = 2
+    max_context_chars: int = 8_000
+    daily_question_cap: int = 70
+    per_user_daily_cap: int = 10
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8")
 
