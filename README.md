@@ -2,52 +2,116 @@
 
 Upload your company documents, ask questions, get cited answers powered by your chosen LLM provider.
 
-**Stack:** FastAPI · SQLite / SQLAlchemy · ChromaDB · sentence-transformers · Groq / Gemini / Anthropic providers
-
-## Current status
-
-This repo is now upgraded through Phase 4 of the product-ready roadmap:
-
-- Phase 1: full pytest + httpx coverage with temporary SQLite and Chroma fixtures
-- Phase 2: sentence/paragraph-aware chunking and chat conversation memory
-- Phase 3: background document ingestion, status polling, and streaming chat responses
-- Phase 4: Alembic migrations, structured logging, GitHub Actions CI, Dockerfile, docker-compose
-
-The complete test suite passes locally:
-
-```bash
-cd C:\Users\K.Anantha\Documents\DevLife\Mainstream_Projects\MajorProjects\documind
-.\.venv\Scripts\python.exe -m pytest -q
-```
+**Live Demo:** https://documind-beta-lac.vercel.app
 
 ## Architecture
 
-```
-React frontend (separate repo/folder)
-        │ HTTPS + JWT
-        ▼
-FastAPI  ──►  Security layer (JWT auth, rate limit, Pydantic validation)
-        │
-        ├──►  SQLite / SQLAlchemy   (orgs, users, documents, chat history)
-        │
-        └──►  RAG pipeline
-                ├── sentence-transformers — embeddings
-                ├── ChromaDB              — org-filtered vector store
-                ├── Claude API            — answer generation + streaming
-                └── Background ingestion   — async document processing
-```
+- **Backend:** FastAPI with org isolation at SQL and vector layers
+- **Database:** PostgreSQL/Neon (production) or SQLite (local)
+- **Vector Store:** ChromaDB with org-scoped filtering
+- **Embeddings:** fastembed (ONNX Runtime) — lightweight alternative to sentence-transformers
+- **LLM:** Groq (default), Gemini, or Anthropic API
+- **Frontend:** React + Vite + Tailwind CSS
+- **Deployment:** Docker on Render (backend), Vercel (frontend)
 
-## Security built in
+## Security
 
-| Concern | Where it lives |
+| Concern | Implementation |
 |---|---|
-| Auth (JWT + bcrypt) | `app/core/security.py` |
-| Org isolation (multi-tenancy) | `app/services/rag.py` — every Chroma query filters `org_id`; `documents.py` — every SQL query scoped to the authenticated user's org |
-| Prompt injection defense | `app/services/generation.py` — docs wrapped in tags, system prompt treats retrieved text as data |
-| Input validation | `app/models/schemas.py` — Pydantic on every endpoint |
-| SQL injection | SQLAlchemy ORM — parameterized queries everywhere |
-| Rate limiting | `app/routes/chat.py` — 20 req/min via slowapi |
-| Logging | structured `user_id`, `org_id`, `latency_ms`, `retrieved_chunks` in chat handlers |
+| **Authentication** | JWT tokens with bcrypt password hashing |
+| **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers |
+| **Rate Limiting** | 20 requests/min on `/chat/ask` via slowapi |
+| **Quota Caps** | Daily org limit (70 questions) + per-user limit (10 questions) |
+| **Prompt Injection** | Retrieved documents wrapped in tags, system prompt treats text as data not instructions |
+| **Input Validation** | Pydantic schemas on all endpoints |
+
+## Limitations
+
+- **Cold starts:** Free-tier hosting has ~50-second cold starts after 15 minutes of inactivity
+- **Ephemeral storage:** Uploaded documents do not persist across container restarts (vector store is on ephemeral disk)
+- **Daily quota:** Subject to daily question limits per org and per user
+- **Model availability:** Depends on chosen LLM provider's API availability
+
+## Local Setup
+
+### Prerequisites
+- Python 3.10+
+- Node.js 16+
+- PostgreSQL 12+ (or use SQLite for local dev)
+
+### Backend
+
+```bash
+cd documind
+
+# Create virtual environment
+python -m venv .venv
+.\.venv\Scripts\activate  # On Windows
+# source .venv/bin/activate  # On Linux/Mac
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your API keys (GROQ_API_KEY, etc.)
+
+# Run migrations (if using PostgreSQL)
+alembic upgrade head
+
+# Start server
+uvicorn app.main:app --reload
+```
+
+Server runs at http://localhost:8000. Interactive API docs at http://localhost:8000/docs (dev only).
+
+### Frontend
+
+```bash
+cd web
+
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+Frontend runs at http://localhost:5173.
+
+### Run Tests
+
+```bash
+pytest -q --basetemp=.pytest-tmp
+```
+
+All 22 tests should pass.
+
+## Stack Pinned Versions (July 2026)
+
+- FastAPI 0.115.12
+- PostgreSQL 17 (production) / SQLite (local)
+- SQLAlchemy 2.0.36
+- Anthropic 0.115.1
+- fastembed 0.8.0
+- ChromaDB ≥ 1.0
+- React 18
+- Vite 5
+
+## Docker Deployment
+
+Build and run locally:
+
+```bash
+docker-compose up --build
+```
+
+Push to Render/Railway/similar: see [DEPLOY.md](DEPLOY.md) for instructions.
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
 
 ## Setup
 

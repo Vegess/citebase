@@ -1,19 +1,41 @@
+# Environment
 .env
 web/.env
+
+# Database & Vector Store
 *.db
 chroma_data/
+
+# Python
 .venv/
 venv/
-web/node_modules/
-.pytest_cache/
-.pytest-tmp/
-out.txt
-check_db.py
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
 
+# Testing
+.pytest_cache/
+.pytest-tmp/
 .pytest-tmp*
 
-.pytest-tmp*
+# Node
+web/node_modules/
+web/dist/
 
-*.db
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dead files (cleanup artifacts)
+out.txt
+check_db.py
+repro_chat.py

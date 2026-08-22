@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
+import { DemoBanner } from "../components/DemoBanner";
 import { useConversationState } from "../hooks/useConversationState";
 
 /**
@@ -58,6 +59,8 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [slowRequest, setSlowRequest] = useState(false);
+  const slowRequestTimer = useRef(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -133,6 +136,13 @@ export default function ChatPage() {
 
     setQuestion("");
     setBusy(true);
+    setSlowRequest(false);
+    
+    // Show slow request message after 3 seconds
+    slowRequestTimer.current = setTimeout(() => {
+      setSlowRequest(true);
+    }, 3000);
+
     setMessages((m) => [
       ...m,
       { role: "user", content: asked },
@@ -185,6 +195,11 @@ export default function ChatPage() {
         notify(detail);
       }
     } finally {
+      if (slowRequestTimer.current) {
+        clearTimeout(slowRequestTimer.current);
+        slowRequestTimer.current = null;
+      }
+      setSlowRequest(false);
       setBusy(false);
     }
   }
@@ -223,7 +238,9 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-6xl flex-col px-5 py-5 lg:flex-row lg:gap-6">
+    <>
+      <DemoBanner />
+      <main className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-6xl flex-col px-5 py-5 lg:flex-row lg:gap-6">
       <aside className="mb-4 w-full shrink-0 rounded-lg border border-rule bg-surface/80 p-3 lg:mb-0 lg:w-72">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Conversations</h2>
@@ -258,8 +275,12 @@ export default function ChatPage() {
             </EmptyState>
           ) : (
             messages.map((m, i) => <Message key={m.id || i} message={m} />)
-          )}
-          <div ref={bottomRef} />
+          )}          {slowRequest && busy && (
+            <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted">
+              <span className="animate-spin">⏳</span>
+              <span>Waking up the server — this can take up to a minute on the free tier.</span>
+            </div>
+          )}          <div ref={bottomRef} />
         </div>
 
         <form onSubmit={handleSubmit} className="border-t border-rule bg-paper py-4">
@@ -284,5 +305,6 @@ export default function ChatPage() {
         </form>
       </section>
     </main>
+    </>
   );
 }

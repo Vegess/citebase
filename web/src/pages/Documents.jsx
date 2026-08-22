@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, StatusBadge, useToast } from "../components/ui";
+import { DemoBanner } from "../components/DemoBanner";
 
 const POLL_MS = 2000;
 
@@ -12,6 +13,8 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [slowUpload, setSlowUpload] = useState(false);
+  const slowUploadTimer = useRef(null);
   const fileInput = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -51,6 +54,13 @@ export default function DocumentsPage() {
     if (files.length === 0) return;
 
     setUploading(true);
+    setSlowUpload(false);
+    
+    // Show slow upload message after 3 seconds
+    slowUploadTimer.current = setTimeout(() => {
+      setSlowUpload(true);
+    }, 3000);
+
     for (const file of files) {
       try {
         const created = await api.uploadDocument(token, file);
@@ -59,6 +69,12 @@ export default function DocumentsPage() {
         notify(`${file.name}: ${err.detail || "upload failed"}`);
       }
     }
+    
+    if (slowUploadTimer.current) {
+      clearTimeout(slowUploadTimer.current);
+      slowUploadTimer.current = null;
+    }
+    setSlowUpload(false);
     setUploading(false);
   }
 
@@ -73,7 +89,9 @@ export default function DocumentsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl px-5 py-10">
+    <>
+      <DemoBanner />
+      <main className="mx-auto max-w-4xl px-5 py-10">
       <h1 className="font-display text-3xl text-ink">Documents</h1>
       <p className="mt-1 text-sm text-muted">
         PDFs and text files. Each one is split, indexed, and made searchable for your
@@ -97,6 +115,11 @@ export default function DocumentsPage() {
       >
         <p className="text-sm text-ink">Drop files here to add them</p>
         <p className="mt-1 text-xs text-muted">PDF or .txt, up to 20 MB each</p>
+        {slowUpload && uploading && (
+          <p className="mt-3 text-xs text-muted">
+            ⏳ Waking up the server — this can take up to a minute on the free tier.
+          </p>
+        )}
         <Button
           variant="secondary"
           className="mt-4"
@@ -150,5 +173,6 @@ export default function DocumentsPage() {
         )}
       </section>
     </main>
+    </>
   );
 }

@@ -41,9 +41,9 @@ logger.info("llm_provider=%s key_loaded=%s", settings.llm_provider, bool(active_
 app = FastAPI(
     title="DocuMind",
     version="0.1.0",
-    docs_url=None if settings.environment.lower() == "production" or settings.debug else "/docs",
-    redoc_url=None if settings.environment.lower() == "production" or settings.debug else "/redoc",
-    openapi_url=None if settings.environment.lower() == "production" or settings.debug else "/openapi.json",
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 app.state.limiter = limiter
