@@ -8,20 +8,20 @@ import re
 
 import chromadb
 from chromadb.api import ClientAPI
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from app.core.config import get_settings
 
 settings = get_settings()
 
-_embedder: SentenceTransformer | None = None
+_embedder: TextEmbedding | None = None
 _chroma: ClientAPI | None = None
 
 
-def get_embedder() -> SentenceTransformer:
+def get_embedder() -> TextEmbedding:
     global _embedder
     if _embedder is None:
-        _embedder = SentenceTransformer(settings.embedding_model)
+        _embedder = TextEmbedding(model_name=settings.embedding_model)
     return _embedder
 
 
@@ -100,7 +100,7 @@ def ingest_document(doc_id: str, org_id: str, filename: str, text: str) -> int:
         return 0
 
     embedder = get_embedder()
-    embeddings = embedder.encode(chunks, show_progress_bar=False).tolist()
+    embeddings = [v.tolist() for v in embedder.embed(chunks)]
 
     collection = get_collection()
     collection.add(
@@ -119,7 +119,7 @@ def retrieve_chunks(org_id: str, query: str, top_k: int | None = None) -> list[d
     """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org."""
     top_k = top_k if top_k is not None else settings.retrieval_top_k
     embedder = get_embedder()
-    query_embedding = embedder.encode([query], show_progress_bar=False).tolist()
+    query_embedding = [v.tolist() for v in embedder.embed([query])]
 
     collection = get_collection()
     results = collection.query(

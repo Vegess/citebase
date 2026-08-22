@@ -32,10 +32,10 @@ class Settings(BaseSettings):
 
     # RAG
     chroma_persist_dir: str = "./chroma_data"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     claude_model: str = "claude-sonnet-4-6"
     max_upload_mb: int = 20
-    max_document_chars: int = 200_000
+    max_document_chars: int = 50_000
     retrieval_top_k: int = 3
     max_prior_turns: int = 2
     max_context_chars: int = 8_000

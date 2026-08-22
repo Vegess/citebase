@@ -2,6 +2,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 from fastapi.testclient import TestClient
 
 
@@ -32,8 +33,32 @@ def app_client(monkeypatch, tmp_path):
             return [list(item) for item in self]
 
     class FakeEmbedder:
-        def encode(self, texts, show_progress_bar=False):
-            return FakeEmbeddingResult([[0.0, 0.0, 0.0] for _ in texts])
+        """Mock embedder matching fastembed interface.
+        
+        Key differences from old sentence-transformers version:
+        - .embed(texts) instead of .encode(texts, show_progress_bar=False)
+        - .embed() returns a generator of individual 1-D numpy arrays
+        - Text-dependent vectors: hash of text content seeds the RNG to produce
+          consistent, unique vectors per text (ensures retrieval tests work correctly)
+        """
+        def embed(self, texts):
+            """Generate embeddings as a generator of 1-D numpy arrays.
+            
+            Each text produces a deterministic embedding based on its hash:
+            - Same text always produces the same vector
+            - Different texts produce different vectors
+            This preserves the org isolation tests that rely on real retrieval behavior.
+            """
+            for text in texts:
+                # Hash the text to get a seed (deterministic and different per text)
+                seed = hash(text) % (2**31)
+                # Create a pseudo-random but stable vector
+                rng = np.random.RandomState(seed)
+                # Generate a 384-dim vector (typical for all-MiniLM-L6-v2)
+                vector = rng.randn(384).astype(np.float32)
+                # Normalize to unit length (like real embeddings)
+                vector = vector / np.linalg.norm(vector)
+                yield vector
 
     class FakeCollection:
         def __init__(self):
