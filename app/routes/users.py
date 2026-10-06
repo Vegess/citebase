@@ -22,4 +22,5 @@ def read_me(user: User = Depends(get_current_user), db: Session = Depends(get_db
         email=user.email,
         org_id=user.org_id,
         org_name=org.name if org else None,
+        role=user.role,
     )

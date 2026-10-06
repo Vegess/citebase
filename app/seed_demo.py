@@ -28,7 +28,7 @@ def _ensure_demo_org_and_user() -> tuple[Org, User]:
 
         user = db.scalar(select(User).where(User.email == email))
         if user is None:
-            user = User(email=email, hashed_password=hash_password(password), org_id=org.id)
+            user = User(email=email, hashed_password=hash_password(password), org_id=org.id, role="OWNER")
             db.add(user)
             db.flush()
         elif user.org_id != org.id:
@@ -59,9 +59,8 @@ def _ingest_demo_docs(org_id: str, uploader_id: str) -> None:
 
             try:
                 text = _doc_text_from_pdf(path)
-                ingest_document(doc.id, org_id, filename, text)
-                doc.num_chunks = 0
-                doc.status = "ready"
+                doc.num_chunks = ingest_document(doc.id, org_id, filename, text)
+                doc.status = "ready" if doc.num_chunks > 0 else "failed"
                 db.commit()
             except Exception:
                 doc.status = "failed"

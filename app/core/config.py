@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # LLM provider
     llm_provider: str = "groq"  # "groq" | "gemini" | "anthropic"
     groq_api_key: str | None = None
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"  # llama-3.3-70b-versatile was retired by Groq
     google_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
 

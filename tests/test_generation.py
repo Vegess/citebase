@@ -24,7 +24,7 @@ def test_generate_answer_falls_back_to_local_context_when_anthropic_is_unavailab
     )
 
     with patch.object(generation, "settings", settings):
-        with patch("app.services.generation.get_client", side_effect=RuntimeError("missing anthropic client")):
+        with patch.object(generation, "get_client", side_effect=RuntimeError("missing anthropic client")):
             answer = generate_answer("What is the refund window?", chunks)
 
     assert "refund" in answer.lower()
@@ -41,7 +41,7 @@ def test_generate_answer_fallback_message_mentions_provider_configuration(chunks
     )
 
     with patch.object(generation, "settings", settings):
-        with patch("app.services.generation.get_client", side_effect=RuntimeError("missing anthropic client")):
+        with patch.object(generation, "get_client", side_effect=RuntimeError("missing anthropic client")):
             answer = generate_answer("What is the refund window?", chunks)
 
     assert "active llm provider" in answer.lower()
@@ -60,7 +60,7 @@ def test_generate_answer_uses_gemini_when_configured(chunks):
     fake_client.models.generate_content.return_value = SimpleNamespace(text="Gemini answer")
 
     with patch.object(generation, "settings", settings):
-        with patch("app.services.generation.get_client", return_value=fake_client):
+        with patch.object(generation, "get_client", return_value=fake_client):
             answer = generate_answer("What is the refund window?", chunks)
 
     assert answer == "Gemini answer"
@@ -82,7 +82,7 @@ def test_generate_answer_uses_groq_when_configured(chunks):
     )
 
     with patch.object(generation, "settings", settings):
-        with patch("app.services.generation.get_client", return_value=fake_client):
+        with patch.object(generation, "get_client", return_value=fake_client):
             answer = generate_answer("What is the refund window?", chunks)
 
     assert answer == "Groq answer"

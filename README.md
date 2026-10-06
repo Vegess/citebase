@@ -19,9 +19,12 @@ Upload your company documents, ask questions, get cited answers powered by your 
 | Concern | Implementation |
 |---|---|
 | **Authentication** | JWT tokens with bcrypt password hashing |
-| **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers |
+| **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers. Signup always creates a new org; existing orgs are joined only by single-use invite |
+| **Roles (RBAC)** | OWNER / ADMIN / MEMBER / VIEWER, read from the database on every request. Viewers ask only; members upload; admins manage people and any document |
+| **Invites** | 32-byte random tokens, stored as SHA-256 hashes, expire after 7 days. Acceptance is atomic (`SELECT … FOR UPDATE` + conditional update), so an invite can create exactly one account even under concurrent requests |
+| **Audit log** | Org creation, invites, role changes, removals, uploads and deletions are recorded in the same transaction as the change |
 | **Rate Limiting** | 20 requests/min on `/chat/ask` via slowapi |
-| **Quota Caps** | Daily org limit (70 questions) + per-user limit (10 questions) |
+| **Quota Caps** | Daily limit shared by the whole deployment (70 questions) + per-user limit (10 questions) |
 | **Prompt Injection** | Retrieved documents wrapped in tags, system prompt treats text as data not instructions |
 | **Input Validation** | Pydantic schemas on all endpoints |
 
@@ -85,7 +88,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 22 tests should pass.
+All 43 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 
@@ -134,8 +137,13 @@ uvicorn app.main:app --reload
 
 ## Local endpoints
 
-- `POST /auth/signup`
+- `POST /auth/signup` — creates a new org with you as OWNER
 - `POST /auth/login`
+- `GET /auth/invites/{token}` — preview an invite
+- `POST /auth/accept-invite` — join an org with an invite token
+- `GET /org/members`, `PATCH /org/members/{id}`, `DELETE /org/members/{id}` — admin+
+- `POST /org/invites`, `GET /org/invites`, `DELETE /org/invites/{id}` — admin+
+- `GET /org/audit` — admin+
 - `POST /documents` — upload PDF or plain text
 - `GET /documents` — list documents
 - `GET /documents/{id}` — poll document ingestion status

@@ -1,5 +1,13 @@
 # Deploying DocuMind
 
+> **Current production setup:** API on **Render** (Docker), database on **Neon**
+> Postgres, frontend on **Vercel**. The Railway steps below still work if you
+> move hosts. Whichever host you use, the container runs `alembic upgrade head`
+> on boot, so schema changes apply automatically on deploy.
+>
+> Render's free disk is temporary: the Chroma index is lost on restart while Neon
+> keeps the document list. Moving vectors into Neon (pgvector) is the next sprint.
+
 Two pieces: the API goes to **Railway** (it needs a persistent disk and ~1.5 GB
 RAM for the embedding model), the frontend goes to **Vercel** (static files, free).
 

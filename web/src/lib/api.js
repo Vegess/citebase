@@ -47,13 +47,12 @@ async function request(path, { token, method = "GET", body, form, signal } = {})
   if (signal) fetchOpts.signal = signal;
   if (payload !== undefined) fetchOpts.body = payload;
 
-  console.debug("api.request", { url, method, headers, body: payload, signal });
-
   let res;
   try {
     res = await fetch(url, fetchOpts);
   } catch (err) {
-    console.error("api.request fetch failed", { url, method, fetchOpts, error: err });
+    // Never log headers or bodies: they carry the bearer token and passwords.
+    console.error("api.request fetch failed", { url, method, error: err?.message });
     const error = new ApiError(null, `Network request failed: ${err.message}`, url);
     error.status = null;
     throw error;
@@ -94,6 +93,32 @@ export function uploadDocument(token, file) {
   fd.append("file", file);
   return request("/documents", { token, method: "POST", body: fd });
 }
+
+/* ---------------- org: members, invites, audit ---------------- */
+
+export const listMembers = (token) => request("/org/members", { token });
+
+export const changeMemberRole = (token, userId, role) =>
+  request(`/org/members/${userId}`, { token, method: "PATCH", body: { role } });
+
+export const removeMember = (token, userId) =>
+  request(`/org/members/${userId}`, { token, method: "DELETE" });
+
+export const listInvites = (token) => request("/org/invites", { token });
+
+export const createInvite = (token, email, role) =>
+  request("/org/invites", { token, method: "POST", body: { email, role } });
+
+export const revokeInvite = (token, inviteId) =>
+  request(`/org/invites/${inviteId}`, { token, method: "DELETE" });
+
+export const listAudit = (token, limit = 30) => request(`/org/audit?limit=${limit}`, { token });
+
+export const previewInvite = (inviteToken) =>
+  request(`/auth/invites/${encodeURIComponent(inviteToken)}`);
+
+export const acceptInvite = (inviteToken, password) =>
+  request("/auth/accept-invite", { method: "POST", body: { token: inviteToken, password } });
 
 /* ---------------- chat ---------------- */
 

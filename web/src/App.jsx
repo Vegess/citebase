@@ -3,9 +3,10 @@ import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
 import { Navbar, ProtectedRoute } from "./components/Chrome";
 import LandingPage from "./pages/Landing";
-import { LoginPage, SignupPage } from "./pages/Auth";
+import { AcceptInvitePage, LoginPage, SignupPage } from "./pages/Auth";
 import DocumentsPage from "./pages/Documents";
 import ChatPage from "./pages/Chat";
+import TeamPage from "./pages/Team";
 
 function AppShell({ children }) {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/invite" element={<AcceptInvitePage />} />
 
             <Route
               path="/documents"
@@ -42,6 +44,17 @@ export default function App() {
                 <ProtectedRoute>
                   <AppShell>
                     <ChatPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/team"
+              element={
+                <ProtectedRoute>
+                  <AppShell>
+                    <TeamPage />
                   </AppShell>
                 </ProtectedRoute>
               }

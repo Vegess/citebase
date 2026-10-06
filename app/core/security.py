@@ -30,6 +30,18 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
+# Verified against when the email is unknown, so a failed login costs the same
+# bcrypt time either way and response timing does not reveal which emails exist.
+_DUMMY_HASH = pwd_context.hash("documind-timing-equaliser")
+
+
+def verify_password_or_dummy(plain: str, hashed: str | None) -> bool:
+    if hashed is None:
+        pwd_context.verify(plain, _DUMMY_HASH)
+        return False
+    return pwd_context.verify(plain, hashed)
+
+
 def create_access_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {"sub": user_id, "exp": expire}
@@ -59,6 +71,37 @@ def get_current_user(
         raise credentials_error
 
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise credentials_error
     return user
+
+
+# ---- Roles (RBAC) ----
+# Ordered from least to most privileged. Checks compare ranks, so a new role
+# slots in by position rather than by editing every route.
+ROLES = ("VIEWER", "MEMBER", "ADMIN", "OWNER")
+ROLE_RANK = {role: rank for rank, role in enumerate(ROLES)}
+
+
+def role_rank(role: str) -> int:
+    return ROLE_RANK.get(role, -1)
+
+
+def require_role(min_role: str):
+    """Dependency factory: the caller must hold at least `min_role`.
+
+    The role is read from the database row behind the token, never from the
+    token or the request, so a demoted user loses access immediately.
+    """
+    if min_role not in ROLE_RANK:
+        raise ValueError(f"Unknown role: {min_role}")
+
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if role_rank(user.role) < ROLE_RANK[min_role]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action needs the {min_role.lower()} role or higher.",
+            )
+        return user
+
+    return dependency
