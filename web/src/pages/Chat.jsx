@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAuth } from "../context/AuthContext";
@@ -35,8 +36,23 @@ function Sources({ citations }) {
  * Answers are Markdown. Raw HTML is never rendered (react-markdown escapes it
  * by default), so a document cannot inject markup through an answer.
  */
+// Models often put "<br>" inside table cells to start a new line. Raw HTML is
+// never rendered, so turn just that tag into a real line break and nothing else.
+const BR_TAG = /<br\s*\/?>/gi;
+
+function withLineBreaks(children) {
+  const convert = (child, key) => {
+    if (typeof child !== "string" || !BR_TAG.test(child)) return child;
+    BR_TAG.lastIndex = 0;
+    return child.split(BR_TAG).flatMap((part, i) => (i === 0 ? [part] : [<br key={`${key}-${i}`} />, part]));
+  };
+  return Array.isArray(children) ? children.flatMap((c, i) => convert(c, i)) : convert(children, 0);
+}
+
 const markdownComponents = {
-  p: (props) => <p className="my-2 first:mt-0 last:mb-0" {...props} />,
+  p: ({ node, children, ...props }) => (
+    <p className="my-2 first:mt-0 last:mb-0" {...props}>{withLineBreaks(children)}</p>
+  ),
   ul: (props) => <ul className="my-2 list-disc space-y-1 pl-5" {...props} />,
   ol: (props) => <ol className="my-2 list-decimal space-y-1 pl-5" {...props} />,
   h1: (props) => <h3 className="mt-4 mb-1 font-display text-lg" {...props} />,
@@ -55,7 +71,10 @@ const markdownComponents = {
     </div>
   ),
   th: (props) => <th className="border border-rule bg-rule-soft px-2 py-1 text-left font-semibold" {...props} />,
-  td: (props) => <td className="border border-rule px-2 py-1 align-top" {...props} />,
+  td: ({ node, children, ...props }) => (
+    <td className="border border-rule px-2 py-1 align-top" {...props}>{withLineBreaks(children)}</td>
+  ),
+  li: ({ node, children, ...props }) => <li {...props}>{withLineBreaks(children)}</li>,
 };
 
 // Same rule as app/services/citations.py: models sometimes write 【1】, ［1］,
@@ -78,7 +97,31 @@ function Answer({ content }) {
   );
 }
 
-function Message({ message }) {
+function Feedback({ message, onRate }) {
+  if (!message.id || message.streaming || message.quota) return null;
+  const button = (value, label, glyph) => (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={message.feedback === value}
+      title={label}
+      onClick={() => onRate(message, message.feedback === value ? 0 : value)}
+      className={`rounded-sm px-1.5 py-0.5 text-sm transition-colors ${
+        message.feedback === value ? "bg-rule-soft text-ink" : "text-muted hover:text-ink"
+      }`}
+    >
+      {glyph}
+    </button>
+  );
+  return (
+    <div className="mt-2 flex items-center gap-1">
+      {button(1, "Helpful", "👍")}
+      {button(-1, "Not helpful", "👎")}
+    </div>
+  );
+}
+
+function Message({ message, onRate }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -91,11 +134,36 @@ function Message({ message }) {
 
   return (
     <div className="ruled-margin">
+      {message.answer_kind === "fallback" && (
+        <p className="mb-2 inline-block rounded-sm bg-warn-soft px-2 py-0.5 text-xs text-warn">
+          The AI model is unavailable right now — this is the closest matching passage, not a written answer.
+        </p>
+      )}
       <div className={`text-[15px] leading-relaxed ${message.quota ? "text-source" : "text-ink"}`}>
         <Answer content={message.content} />
         {message.streaming && <span className="stream-caret" />}
       </div>
       <Sources citations={message.citations} />
+      <Feedback message={message} onRate={onRate} />
+    </div>
+  );
+}
+
+function StarterCards({ suggestions, onPick }) {
+  if (!suggestions.length) return null;
+  return (
+    <div className="mx-auto mt-6 grid max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {suggestions.map((s) => (
+        <button
+          key={`${s.doc_id}-${s.question}`}
+          type="button"
+          onClick={() => onPick(s.question)}
+          className="group rounded-lg border border-rule bg-surface p-4 text-left transition-colors hover:border-signal"
+        >
+          <span className="block text-sm text-ink group-hover:text-signal">{s.question}</span>
+          <span className="mt-2 block truncate font-mono text-[11px] text-muted">{s.filename}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -109,6 +177,13 @@ export default function ChatPage() {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [slowRequest, setSlowRequest] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  // True while a question is in flight: the conversation loader must not
+  // replace the optimistic messages with a half-saved server copy.
+  const askingRef = useRef(false);
+  const handledAskRef = useRef(null);
+  const location = useLocation();
+  const navigate = useNavigate();
   const slowRequestTimer = useRef(null);
   const bottomRef = useRef(null);
 
@@ -121,6 +196,7 @@ export default function ChatPage() {
         const list = await api.listConversations(token);
         if (cancelled) return;
         setConversations(list);
+        if (askingRef.current) return;
 
         if (!conversationId) {
           setMessages([]);
@@ -141,6 +217,8 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
             citations: m.citations || [],
+            answer_kind: m.answer_kind,
+            feedback: m.feedback,
           })),
         );
       } catch (err) {
@@ -162,6 +240,11 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    if (!token) return;
+    api.getSuggestions(token).then(setSuggestions).catch(() => setSuggestions([]));
+  }, [token]);
+
   // The server names a conversation after its first question; re-read the
   // list so the sidebar shows that title instead of "New conversation".
   const refreshConversations = useCallback(async () => {
@@ -174,8 +257,13 @@ export default function ChatPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const asked = question.trim();
-    if (!asked || busy) return;
+    await ask(question);
+  }
+
+  async function ask(text) {
+    const asked = (text || "").trim();
+    if (!asked || busy || askingRef.current) return;
+    askingRef.current = true;
 
     let activeConversationId = conversationId;
     if (!activeConversationId) {
@@ -188,6 +276,7 @@ export default function ChatPage() {
         const message = err.detail || err.message || "Unable to start a new conversation.";
         const url = err.url ? ` URL=${err.url}` : "";
         notify(`${message}${url}`);
+        askingRef.current = false;
         setBusy(false);
         return;
       }
@@ -226,6 +315,7 @@ export default function ChatPage() {
           updateLast({ content: receivedText });
         },
         onCitations: (citations) => updateLast({ citations }),
+        onMeta: ({ id, answer_kind }) => updateLast({ id, answer_kind }),
       });
       updateLast({ streaming: false });
     } catch (err) {
@@ -252,7 +342,13 @@ export default function ChatPage() {
       // The stream never reached the server (network error): safe to retry once.
       try {
         const res = await api.ask(token, asked, activeConversationId);
-        updateLast({ content: res.answer, citations: res.citations, streaming: false });
+        updateLast({
+          content: res.answer,
+          citations: res.citations,
+          id: res.message_id,
+          answer_kind: res.answer_kind,
+          streaming: false,
+        });
       } catch (fallbackErr) {
         if (fallbackErr?.status === 429) {
           const detail = fallbackErr.detail || "The demo is busy right now. Please try again in a moment.";
@@ -269,6 +365,7 @@ export default function ChatPage() {
         notify(detail);
       }
     } finally {
+      askingRef.current = false;
       refreshConversations();
       if (slowRequestTimer.current) {
         clearTimeout(slowRequestTimer.current);
@@ -278,6 +375,28 @@ export default function ChatPage() {
       setBusy(false);
     }
   }
+
+  async function rate(message, value) {
+    setMessages((all) => all.map((m) => (m.id === message.id ? { ...m, feedback: value || null } : m)));
+    try {
+      await api.rateAnswer(token, message.id, value);
+    } catch (err) {
+      notify(err.detail || "Couldn't save your feedback.");
+    }
+  }
+
+  // Quick ask (from any page) arrives as router state: ask it once, then clear
+  // the state so a refresh doesn't ask again.
+  const pendingAsk = location.state?.ask;
+  useEffect(() => {
+    if (!pendingAsk || !token || handledAskRef.current === location.key) return;
+    handledAskRef.current = location.key; // React may run effects twice; ask once
+    navigate(location.pathname, { replace: true, state: null });
+    clearConversationId();
+    setMessages([]);
+    ask(pendingAsk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAsk, token]);
 
   async function startNewConversation() {
     try {
@@ -344,12 +463,16 @@ export default function ChatPage() {
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 space-y-6 overflow-y-auto py-2">
           {messages.length === 0 ? (
-            <EmptyState title="Ask about your documents">
-              Try “What is the notice period?” or “Summarise the renewal terms.” Every
-              answer names the file it came from.
-            </EmptyState>
+            <div>
+              <EmptyState title="Ask about your documents">
+                {suggestions.length
+                  ? "Start with one of these, or type your own. Every answer names the file it came from."
+                  : "Try “What is the notice period?” or “Summarise the travel policy.” Every answer names the file it came from."}
+              </EmptyState>
+              <StarterCards suggestions={suggestions} onPick={ask} />
+            </div>
           ) : (
-            messages.map((m, i) => <Message key={m.id || i} message={m} />)
+            messages.map((m, i) => <Message key={m.id || i} message={m} onRate={rate} />)
           )}          {slowRequest && busy && (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted">
               <span className="animate-spin">⏳</span>

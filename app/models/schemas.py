@@ -3,7 +3,9 @@ from datetime import datetime
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+import json
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ---- Auth ----
@@ -28,8 +30,15 @@ class DocumentOut(BaseModel):
     error: str | None = None
     truncated: bool = False
     char_count: int | None = None
+    summary: str | None = None
+    suggested_questions: list[str] | None = None
     created_at: datetime
     updated_at: datetime | None = None
+
+    @field_validator("suggested_questions", mode="before")
+    @classmethod
+    def _parse_questions(cls, value):
+        return json.loads(value) if isinstance(value, str) else value
 
     class Config:
         from_attributes = True
@@ -63,6 +72,18 @@ class Citation(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     citations: list[Citation]
+    message_id: str | None = None
+    answer_kind: str | None = None
+
+
+class FeedbackRequest(BaseModel):
+    value: Literal[1, -1, 0]  # 0 clears it
+
+
+class Suggestion(BaseModel):
+    question: str
+    filename: str
+    doc_id: str
 
 
 class ConversationOut(BaseModel):
@@ -80,6 +101,8 @@ class ConversationMessageOut(BaseModel):
     role: str
     content: str
     citations: list[Citation] | None = None
+    answer_kind: str | None = None
+    feedback: int | None = None
     created_at: datetime
 
     class Config:

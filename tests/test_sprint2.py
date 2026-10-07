@@ -106,7 +106,10 @@ def _jobs():
     import app.core.database as database
     from app.models.models import Job
     with database.SessionLocal() as db:
-        return [(j.status, j.attempts, json.loads(j.payload), j.last_error) for j in db.scalars(select(Job))]
+        # Ingest jobs only: with an LLM key configured, a ready document also
+        # queues a summarize_document job (Sprint 4a), covered in test_insights.py.
+        return [(j.status, j.attempts, json.loads(j.payload), j.last_error)
+                for j in db.scalars(select(Job).where(Job.kind == "ingest_document"))]
 
 
 def test_finished_jobs_drop_the_document_text(app_client):
@@ -266,7 +269,7 @@ def test_metrics_require_the_right_token_and_count_fallbacks(app_client, monkeyp
     assert m["fallback_total"] == 1 and m["fallback_reasons"] == {"missing_api_key": 1}
     assert m["fallback_rate_5m"] == 1.0
     assert m["documents_by_status"] == {"ready": 1} and m["chunks_total"] >= 1
-    assert m["jobs_by_status"] == {"done": 1}
+    assert m["jobs_by_status"].get("done", 0) >= 1
 
     logs = app_client.get("/metrics/logs?contains=fallback", headers={"Authorization": "Bearer s3cret"}).json()
     assert logs and logs[-1]["fallback"] is True and logs[-1]["fallback_reason"] == "missing_api_key"

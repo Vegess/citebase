@@ -5,7 +5,10 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.services import jobs, lifecycle
+from app.services.generation import llm_configured
 from app.services.rag import chunk_text, embed_texts, store_chunks
+
+SUMMARY_KIND = "summarize_document"  # handler lives in app/services/summaries.py
 
 logger = logging.getLogger("app.services.ingestion")
 
@@ -41,6 +44,9 @@ def _run(db: Session, payload: dict) -> None:
     if lifecycle.transition(db, doc_id, lifecycle.READY, num_chunks=len(chunks), error=None) is None:
         db.rollback()
         return
+    if llm_configured():
+        # Same transaction as READY: a ready document always gets its summary job.
+        jobs.enqueue(db, SUMMARY_KIND, {"doc_id": doc_id})
     db.commit()
     logger.info("Ingested doc_id=%s org_id=%s chunks=%s", doc_id, org_id, len(chunks))
 

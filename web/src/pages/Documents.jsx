@@ -36,7 +36,11 @@ export default function DocumentsPage() {
   // Ingestion runs in the background, so anything still processing is
   // re-checked until the backend marks it ready or failed.
   useEffect(() => {
-    const pending = docs.filter((d) => IN_PROGRESS.has(d.status));
+    // Also re-check freshly ready documents for a minute or two: their summary
+    // is written by a follow-up job shortly after they become ready.
+    const summaryPending = (d) =>
+      d.status === "ready" && !d.summary && Date.now() - new Date(d.created_at).getTime() < 120_000;
+    const pending = docs.filter((d) => IN_PROGRESS.has(d.status) || summaryPending(d));
     if (pending.length === 0) return;
 
     const timer = setTimeout(async () => {
@@ -175,6 +179,11 @@ export default function DocumentsPage() {
                       : new Date(doc.created_at).toLocaleDateString()}
                     {doc.truncated && " · only the first part was indexed (file too long)"}
                   </p>
+                  {doc.summary && doc.status === "ready" && (
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-ink-soft" title={doc.summary}>
+                      {doc.summary}
+                    </p>
+                  )}
                   {doc.error && doc.status !== "ready" && (
                     <p className={`mt-1 text-xs ${IN_PROGRESS.has(doc.status) ? "text-muted" : "text-danger"}`}>
                       {doc.error}
