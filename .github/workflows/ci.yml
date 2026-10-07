@@ -33,3 +33,24 @@ jobs:
           CHROMA_PERSIST_DIR: ./test_chroma
           CORS_ORIGINS: http://localhost:5173
         run: python -m pytest -q --basetemp=.pytest-tmp
+  # Real-model retrieval numbers for the demo company. Informational: the
+  # table lands in the job summary; it does not block merging (the pipeline
+  # itself is gated by tests/test_eval.py in the `test` job).
+  eval:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Retrieval eval (real embeddings)
+        env:
+          LLM_PROVIDER: groq
+          GROQ_API_KEY: not-used
+        run: python -m eval.run_eval

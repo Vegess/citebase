@@ -58,10 +58,22 @@ const markdownComponents = {
   td: (props) => <td className="border border-rule px-2 py-1 align-top" {...props} />,
 };
 
+// Same rule as app/services/citations.py: models sometimes write 【1】, ［1］,
+// [^1] or [source 1]; show them all as [1] so they match the source chips.
+const CITATION_VARIANT =
+  /[\[【［〔]\s*(?:\^|source\s*)?(\d{1,2}(?:\s*[,，、]\s*\d{1,2})*)(?:\s*†[^\]】］〕]*)?\s*[\]】］〕]/gi;
+
+function normalizeMarkers(text) {
+  return (text || "").replace(
+    CITATION_VARIANT,
+    (_, numbers) => `[${numbers.split(/\s*[,，、]\s*/).join(", ")}]`,
+  );
+}
+
 function Answer({ content }) {
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-      {content}
+      {normalizeMarkers(content)}
     </ReactMarkdown>
   );
 }
@@ -203,13 +215,15 @@ export default function ChatPage() {
         return next;
       });
 
+    let receivedAny = false;
+    let receivedText = "";
     try {
-      let text = "";
       await api.askStream(token, asked, {
         conversationId: activeConversationId,
         onToken: (chunk) => {
-          text += chunk;
-          updateLast({ content: text });
+          receivedAny = true;
+          receivedText += chunk;
+          updateLast({ content: receivedText });
         },
         onCitations: (citations) => updateLast({ citations }),
       });
@@ -222,7 +236,20 @@ export default function ChatPage() {
         return;
       }
 
-      // Fall back to the non-streaming endpoint before giving up on the answer.
+      // If the server already started answering, it has counted the question
+      // and saved it; asking again via /ask would charge and store it twice.
+      if (receivedAny || err?.status) {
+        updateLast({
+          content: receivedAny
+            ? `${receivedText}\n\n_The connection dropped before the answer finished. Ask again to get the rest._`
+            : `That question couldn't be answered just now (HTTP ${err.status}${err.detail ? `: ${err.detail}` : ""}).`,
+          streaming: false,
+        });
+        notify(err?.detail || "The answer was interrupted.");
+        return;
+      }
+
+      // The stream never reached the server (network error): safe to retry once.
       try {
         const res = await api.ask(token, asked, activeConversationId);
         updateLast({ content: res.answer, citations: res.citations, streaming: false });
