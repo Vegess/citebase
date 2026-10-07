@@ -3,7 +3,8 @@ backbone of multi-tenant isolation (security concern #3)."""
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.sql.expression import true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -21,7 +22,9 @@ class Org(Base):
     __tablename__ = "orgs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    # Display name only. NOT unique and never used to look an org up: matching
+    # orgs by name at signup let anyone join any org by typing its name.
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     users: Mapped[list["User"]] = relationship(back_populates="org")
@@ -36,6 +39,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="MEMBER", server_default="MEMBER")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     org: Mapped[Org] = relationship(back_populates="users")
@@ -96,3 +101,33 @@ class QuestionUsage(Base):
     usage_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     scope: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class OrgInvite(Base):
+    """Single-use invitation into an org. Only the SHA-256 of the token is stored."""
+    __tablename__ = "org_invites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    invited_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditEvent(Base):
+    """Append-only record of security-relevant actions inside an org."""
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, StatusBadge, useToast } from "../components/ui";
 import { DemoBanner } from "../components/DemoBanner";
@@ -7,8 +7,10 @@ import { DemoBanner } from "../components/DemoBanner";
 const POLL_MS = 2000;
 
 export default function DocumentsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const notify = useToast();
+  const canUpload = hasRole(user, "MEMBER");
+  const canRemove = (doc) => doc.uploaded_by === user?.id || hasRole(user, "ADMIN");
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -98,6 +100,13 @@ export default function DocumentsPage() {
         organisation only.
       </p>
 
+      {!canUpload && (
+        <p className="mt-7 rounded-lg border border-rule bg-surface px-4 py-3 text-sm text-muted">
+          You have view-only access: you can ask questions about these documents, but an
+          admin needs to upload or remove them.
+        </p>
+      )}
+      {canUpload && (
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -140,6 +149,7 @@ export default function DocumentsPage() {
           }}
         />
       </div>
+      )}
 
       <section className="mt-8">
         {loading ? (
@@ -164,9 +174,11 @@ export default function DocumentsPage() {
                   </p>
                 </div>
                 <StatusBadge status={doc.status} />
-                <Button variant="danger" onClick={() => handleDelete(doc)}>
-                  Remove
-                </Button>
+                {canRemove(doc) && (
+                  <Button variant="danger" onClick={() => handleDelete(doc)}>
+                    Remove
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

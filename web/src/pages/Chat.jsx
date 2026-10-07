@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
@@ -20,12 +22,47 @@ function Sources({ citations }) {
           key={`${c.filename}-${c.chunk_index}-${i}`}
           className="inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source"
         >
-          <span className="opacity-60">{i + 1}</span>
+          <span className="opacity-60">{c.n ?? i + 1}</span>
           <span className="max-w-[220px] truncate">{c.filename}</span>
           <span className="opacity-60">#{c.chunk_index}</span>
         </span>
       ))}
     </div>
+  );
+}
+
+/**
+ * Answers are Markdown. Raw HTML is never rendered (react-markdown escapes it
+ * by default), so a document cannot inject markup through an answer.
+ */
+const markdownComponents = {
+  p: (props) => <p className="my-2 first:mt-0 last:mb-0" {...props} />,
+  ul: (props) => <ul className="my-2 list-disc space-y-1 pl-5" {...props} />,
+  ol: (props) => <ol className="my-2 list-decimal space-y-1 pl-5" {...props} />,
+  h1: (props) => <h3 className="mt-4 mb-1 font-display text-lg" {...props} />,
+  h2: (props) => <h3 className="mt-4 mb-1 font-display text-lg" {...props} />,
+  h3: (props) => <h4 className="mt-3 mb-1 font-semibold" {...props} />,
+  strong: (props) => <strong className="font-semibold text-ink" {...props} />,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="text-signal underline">
+      {children}
+    </a>
+  ),
+  code: (props) => <code className="rounded-sm bg-rule-soft px-1 font-mono text-[13px]" {...props} />,
+  table: (props) => (
+    <div className="my-3 overflow-x-auto">
+      <table className="w-full border-collapse text-sm" {...props} />
+    </div>
+  ),
+  th: (props) => <th className="border border-rule bg-rule-soft px-2 py-1 text-left font-semibold" {...props} />,
+  td: (props) => <td className="border border-rule px-2 py-1 align-top" {...props} />,
+};
+
+function Answer({ content }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      {content}
+    </ReactMarkdown>
   );
 }
 
@@ -42,10 +79,10 @@ function Message({ message }) {
 
   return (
     <div className="ruled-margin">
-      <p className={`whitespace-pre-wrap text-[15px] leading-relaxed ${message.quota ? "text-source" : "text-ink"}`}>
-        {message.content}
+      <div className={`text-[15px] leading-relaxed ${message.quota ? "text-source" : "text-ink"}`}>
+        <Answer content={message.content} />
         {message.streaming && <span className="stream-caret" />}
-      </p>
+      </div>
       <Sources citations={message.citations} />
     </div>
   );
@@ -112,6 +149,16 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // The server names a conversation after its first question; re-read the
+  // list so the sidebar shows that title instead of "New conversation".
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await api.listConversations(token));
+    } catch {
+      /* sidebar refresh is best-effort */
+    }
+  }, [token]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -195,6 +242,7 @@ export default function ChatPage() {
         notify(detail);
       }
     } finally {
+      refreshConversations();
       if (slowRequestTimer.current) {
         clearTimeout(slowRequestTimer.current);
         slowRequestTimer.current = null;

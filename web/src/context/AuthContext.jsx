@@ -41,17 +41,33 @@ export function AuthProvider({ children }) {
     [loadUser],
   );
 
+  const joinWithInvite = useCallback(
+    async (inviteToken, password) => {
+      const { access_token } = await api.acceptInvite(inviteToken, password);
+      setToken(access_token);
+      await loadUser(access_token);
+    },
+    [loadUser],
+  );
+
   const signOut = useCallback(() => {
     setToken(null);
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, signIn, register, signOut, isAuthed: Boolean(token) }),
-    [token, user, signIn, register, signOut],
+    () => ({ token, user, signIn, register, joinWithInvite, signOut, isAuthed: Boolean(token) }),
+    [token, user, signIn, register, joinWithInvite, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+const RANK = { VIEWER: 0, MEMBER: 1, ADMIN: 2, OWNER: 3 };
+
+/** UI hint only — the API enforces every permission on its own. */
+export function hasRole(user, minRole) {
+  return (RANK[user?.role] ?? -1) >= RANK[minRole];
 }
 
 export function useAuth() {

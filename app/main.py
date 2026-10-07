@@ -19,7 +19,7 @@ from pathlib import Path
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 import app.models.models  # noqa: F401
-from app.routes import auth, chat, documents, users
+from app.routes import auth, chat, documents, org, users
 from app.routes.chat import limiter
 from app.services.quota import get_usage
 
@@ -37,6 +37,13 @@ active_provider_key = {
     "anthropic": settings.anthropic_api_key,
 }.get(settings.llm_provider)
 logger.info("llm_provider=%s key_loaded=%s", settings.llm_provider, bool(active_provider_key))
+if not active_provider_key:
+    # Loud on purpose: without a key every answer is the degraded local fallback.
+    logger.error(
+        "No API key for LLM_PROVIDER=%s. Answers will use the degraded local fallback "
+        "until a key is set.",
+        settings.llm_provider,
+    )
 
 app = FastAPI(
     title="DocuMind",
@@ -80,6 +87,7 @@ app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(users.router)
 app.include_router(chat.router)
+app.include_router(org.router)
 
 
 @app.get("/health")

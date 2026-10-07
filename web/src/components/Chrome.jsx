@@ -1,5 +1,5 @@
 import { Navigate, NavLink, useLocation } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { hasRole, useAuth } from "../context/AuthContext";
 import { Button } from "./ui";
 
 export function Wordmark({ className = "" }) {
@@ -37,6 +37,11 @@ export function Navbar() {
           <NavLink to="/chat" className={linkClass}>
             Ask
           </NavLink>
+          {hasRole(user, "ADMIN") && (
+            <NavLink to="/team" className={linkClass}>
+              Team
+            </NavLink>
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
@@ -45,7 +50,7 @@ export function Navbar() {
               <span className="block text-xs text-ink">{user.email}</span>
               {user.org_name && (
                 <span className="block font-mono text-[11px] text-muted">
-                  {user.org_name}
+                  {user.org_name} · {user.role?.toLowerCase()}
                 </span>
               )}
             </span>
