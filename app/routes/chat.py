@@ -26,10 +26,10 @@ from app.models.schemas import (
     ConversationOut,
 )
 from app.services import metrics
-from app.services.citations import select_citations
+from app.services.answer_plan import plan_answer
+from app.services.citations import normalize_markers, select_citations
 from app.services.generation import GroqRateLimitExceeded, generate_answer, stream_answer
 from app.services.quota import release_question, reserve_question
-from app.services.rag import retrieve_chunks
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 limiter = Limiter(key_func=get_remote_address)
@@ -157,13 +157,16 @@ def ask(
 ):
     start = time.perf_counter()
     conversation = _ensure_conversation(body, user, db)
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k, db=db)
-    metrics.record_chat(len(chunks))
     history = _load_history(conversation, db)
+    plan = plan_answer(db, user.org_id, body.question, history)
+    chunks = plan.chunks
+    metrics.record_chat(len(chunks))
 
     reserve_question(db, user.id, org_id=user.org_id)
     try:
-        answer = generate_answer(body.question, chunks, prior_turns=history)
+        answer = normalize_markers(generate_answer(
+            body.question, chunks, prior_turns=history, note=plan.note, context_limit=plan.context_limit,
+        ))
     except GroqRateLimitExceeded:
         release_question(db, user.id, org_id=user.org_id)
         raise HTTPException(
@@ -204,11 +207,12 @@ def ask(
     citations = [Citation(**c) for c in used]
     latency_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
-        "chat.ask completed user_id=%s org_id=%s latency_ms=%s retrieved_chunks=%s",
+        "chat.ask completed user_id=%s org_id=%s latency_ms=%s retrieved_chunks=%s mode=%s",
         user.id,
         user.org_id,
         latency_ms,
         len(chunks),
+        plan.mode,
     )
     return AskResponse(answer=answer, citations=citations)
 
@@ -224,9 +228,10 @@ def ask_stream(
     user_id = user.id
     org_id = user.org_id
     conversation = _ensure_conversation(body, user, db)
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k, db=db)
-    metrics.record_chat(len(chunks))
     history = _load_history(conversation, db)
+    plan = plan_answer(db, org_id, body.question, history)
+    chunks = plan.chunks
+    metrics.record_chat(len(chunks))
     reserve_question(db, user_id, org_id=org_id)
 
     if conversation is None:
@@ -237,7 +242,9 @@ def ask_stream(
     _name_if_untitled(conversation, body.question)
     db.commit()
     conversation_id = conversation.id
-    answer_stream = stream_answer(body.question, chunks, prior_turns=history)
+    answer_stream = stream_answer(
+        body.question, chunks, prior_turns=history, note=plan.note, context_limit=plan.context_limit,
+    )
     try:
         first_chunk = next(answer_stream)
     except GroqRateLimitExceeded:
@@ -270,6 +277,7 @@ def ask_stream(
                 full_answer += chunk
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
 
+            full_answer = normalize_markers(full_answer)
             citations = select_citations(full_answer, chunks)
             yield f"data: {json.dumps({'citations': citations})}\n\n"
             yield "data: [DONE]\n\n"

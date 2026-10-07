@@ -82,9 +82,17 @@ def _sanitize_text(text: str | None) -> str:
     return "".join(ch for ch in cleaned if ch.isprintable() or ch in "\n\r\t")
 
 
-def _build_messages(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> list[dict]:
+def _build_messages(
+    question: str,
+    chunks: list[dict],
+    prior_turns: list[dict] | None = None,
+    note: str | None = None,
+    context_limit: int | None = None,
+) -> list[dict]:
+    """`note` tells the model what the sources are (e.g. "the whole of resume.pdf,
+    in order"); `context_limit` widens the budget for whole-document tasks."""
     context_blocks = []
-    context_limit = getattr(settings, "max_context_chars", 8_000)
+    context_limit = context_limit or getattr(settings, "max_context_chars", 8_000)
     for number, chunk in enumerate(chunks, start=1):
         block = (
             f'<source id="{number}" filename="{chunk["filename"]}">\n'
@@ -96,8 +104,9 @@ def _build_messages(question: str, chunks: list[dict], prior_turns: list[dict] |
 
     context_text = "".join(context_blocks)
 
+    preamble = f"{note}\n\n" if note else ""
     user_message = (
-        f"Sources:\n\n{context_text}\n\n"
+        f"{preamble}Sources:\n\n{context_text}\n\n"
         f"Question: {_sanitize_text(question)}"
     )
 
@@ -141,8 +150,8 @@ def _fallback(question: str, chunks: list[dict], reason: str) -> str:
     return _build_local_answer(question, chunks)
 
 
-def _generate_anthropic(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
-    messages = _build_messages(question, chunks, prior_turns)
+def _generate_anthropic(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None) -> str:
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     response = client.messages.create(
         model=settings.claude_model,
@@ -154,8 +163,8 @@ def _generate_anthropic(question: str, chunks: list[dict], prior_turns: list[dic
     return "".join(parts)
 
 
-def _stream_anthropic(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
-    messages = _build_messages(question, chunks, prior_turns)
+def _stream_anthropic(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None):
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     with client.messages.stream(
         model=settings.claude_model,
@@ -195,8 +204,8 @@ def _extract_gemini_text(chunk) -> str:
     return ""
 
 
-def _generate_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
-    messages = _build_messages(question, chunks, prior_turns)
+def _generate_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None) -> str:
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     response = client.models.generate_content(
         model=settings.gemini_model,
@@ -206,8 +215,8 @@ def _generate_gemini(question: str, chunks: list[dict], prior_turns: list[dict] 
     return response.text
 
 
-def _stream_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
-    messages = _build_messages(question, chunks, prior_turns)
+def _stream_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None):
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     stream = client.models.generate_content_stream(
         model=settings.gemini_model,
@@ -220,8 +229,8 @@ def _stream_gemini(question: str, chunks: list[dict], prior_turns: list[dict] | 
             yield text
 
 
-def _generate_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
-    messages = _build_messages(question, chunks, prior_turns)
+def _generate_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None) -> str:
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     for attempt in range(2):
         try:
@@ -237,8 +246,8 @@ def _generate_groq(question: str, chunks: list[dict], prior_turns: list[dict] | 
             time.sleep(2)
 
 
-def _stream_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
-    messages = _build_messages(question, chunks, prior_turns)
+def _stream_groq(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None):
+    messages = _build_messages(question, chunks, prior_turns, note, context_limit)
     client = get_client()
     for attempt in range(2):
         try:
@@ -265,7 +274,7 @@ def _log_groq_rate_limit(error: RateLimitError, attempt: int) -> None:
     logger.warning("Groq rate limit encountered scope=%s retry=%s", scope, attempt == 0)
 
 
-def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
+def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None) -> str:
     if not chunks:
         return ("I couldn't find anything relevant in your organization's documents. "
                 "Try rephrasing, or upload the relevant document first.")
@@ -284,21 +293,21 @@ def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] |
 
     if active_provider == "anthropic":
         try:
-            return _generate_anthropic(question, chunks, prior_turns)
+            return _generate_anthropic(question, chunks, prior_turns, note, context_limit)
         except Exception:
             logger.exception("Claude call failed; falling back to local answer")
             return _fallback(question, chunks, "provider_error")
 
     if active_provider == "gemini":
         try:
-            return _generate_gemini(question, chunks, prior_turns)
+            return _generate_gemini(question, chunks, prior_turns, note, context_limit)
         except Exception:
             logger.exception("Gemini call failed; falling back to local answer")
             return _fallback(question, chunks, "provider_error")
 
     if active_provider == "groq":
         try:
-            return _generate_groq(question, chunks, prior_turns)
+            return _generate_groq(question, chunks, prior_turns, note, context_limit)
         except GroqRateLimitExceeded:
             raise
         except Exception:
@@ -309,7 +318,7 @@ def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] |
     return _fallback(question, chunks, "unknown_provider")
 
 
-def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
+def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None, note: str | None = None, context_limit: int | None = None):
     if not chunks:
         yield ("I couldn't find anything relevant in your organization's documents. "
                "Try rephrasing, or upload the relevant document first.")
@@ -330,7 +339,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
 
     if active_provider == "anthropic":
         try:
-            yield from _stream_anthropic(question, chunks, prior_turns)
+            yield from _stream_anthropic(question, chunks, prior_turns, note, context_limit)
         except Exception:
             logger.exception("Claude streaming failed; falling back to local answer")
             yield _fallback(question, chunks, "provider_error")
@@ -338,7 +347,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
 
     if active_provider == "gemini":
         try:
-            yield from _stream_gemini(question, chunks, prior_turns)
+            yield from _stream_gemini(question, chunks, prior_turns, note, context_limit)
         except Exception:
             logger.exception("Gemini streaming failed; falling back to local answer")
             yield _fallback(question, chunks, "provider_error")
@@ -346,7 +355,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
 
     if active_provider == "groq":
         try:
-            yield from _stream_groq(question, chunks, prior_turns)
+            yield from _stream_groq(question, chunks, prior_turns, note, context_limit)
         except GroqRateLimitExceeded:
             raise
         except Exception:

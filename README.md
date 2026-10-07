@@ -15,6 +15,24 @@ Upload your company documents, ask questions, get cited answers powered by your 
 - **Frontend:** React + Vite + Tailwind CSS
 - **Deployment:** Docker on Render (backend), Vercel (frontend)
 
+## How answers are built
+
+- **Questions** ("what is the notice period?") use the 6 most relevant passages across your workspace. Short follow-ups ("and for interns?") borrow the previous question's words for the search.
+- **Document tasks** ("review and rate my resume", "summarise the travel policy", "compare …") get the document itself, in reading order: found by file name mentioned in the question, "the file I just uploaded", the only document, or the best match. Long files send the opening plus the most relevant passages, and the model is told it is seeing part of the file.
+- Naming a file in a question ("in the travel policy, …") searches only that file.
+- Sources are numbered; only sources the answer cites are shown, whatever bracket style the model uses (`[1]`, `【1】`, `[^1]`).
+
+## Evaluation
+
+`eval/demo_company/` is a fictional company (Northwind Freight: handbook, travel, IT security, code of conduct, benefits). `eval/questions.yaml` holds 24 scored questions written before measuring: 18 answerable, 3 that the documents cannot answer, and 3 whole-document tasks.
+
+```bash
+python -m eval.run_eval            # retrieval hit@6, MRR, routing — real embeddings, no LLM key needed
+python -m eval.run_eval --answers  # also answer accuracy and "says I don't know" rate, using your LLM key
+```
+
+CI runs the same eval with a deterministic offline embedder as a gate (`tests/test_eval.py`), and the real-embedding numbers as an informational job summary. A demo workspace for showing the product: `python -m app.seed_demo --email demo@… --password …`.
+
 ## Security
 
 | Concern | Implementation |
@@ -91,7 +109,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 59 tests should pass.
+All 86 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 

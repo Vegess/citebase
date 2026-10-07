@@ -1,0 +1,24 @@
+Northwind Freight Pvt. Ltd. — Employee Handbook (2026 edition)
+
+This is a fictional company created as demo data for DocuMind. Any resemblance to a real company is coincidental.
+
+1. Working hours
+Standard working hours are 9:30 am to 6:30 pm, Monday to Friday, with a one-hour lunch break. Operations staff at the warehouses work rotating shifts published two weeks in advance.
+
+2. Hybrid work
+Office-based employees may work from home up to two days per week, agreed with their manager. Employees in their probation period work from the office full time.
+
+3. Probation
+All new employees serve a probation period of six months. The manager may extend probation once, by up to three months, with written reasons.
+
+4. Notice period
+During probation the notice period is 7 days on either side. After confirmation, employees on a permanent contract give 30 days' written notice. Employees at manager grade and above give 60 days' written notice. Unused annual leave cannot be adjusted against the notice period.
+
+5. Leave
+Employees receive 24 days of paid annual leave per calendar year, credited monthly at 2 days per month. Up to 10 unused annual leave days may be carried forward into the next year. Sick leave is 12 days per year and cannot be carried forward; sick leave of more than 2 consecutive days needs a medical certificate. Maternity leave is 26 weeks of paid leave. Paternity leave is 10 working days, to be taken within three months of the child's birth or adoption. The company observes 12 public holidays each year; the list is published every December.
+
+6. Payroll
+Salaries are credited on the last working day of each month. Payslips are available in the HR portal.
+
+7. Grievances
+Employees can raise a grievance with their manager or directly with HR at hr@northwind.example. HR acknowledges every grievance within 2 working days.

@@ -108,7 +108,8 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
     return 1.0 - (dot / norm if norm else 0.0)
 
 
-def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int) -> list[dict]:
+def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int,
+                 doc_ids: list[str] | None = None) -> list[dict]:
     # Exact search filtered by org_id (btree index), not an ANN index: an HNSW
     # scan followed by an org filter can return fewer than top_k rows for small
     # orgs. Exact search is correct and fast at this scale (< ~100k chunks/org).
@@ -116,32 +117,39 @@ def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int
     rows = db.execute(
         text(
             """
-            SELECT c.text, d.filename, c.chunk_index, c.embedding <=> CAST(:q AS vector) AS distance
+            SELECT c.text, d.filename, c.chunk_index, c.doc_id, c.embedding <=> CAST(:q AS vector) AS distance
             FROM document_chunks c
             JOIN documents d ON d.id = c.doc_id
             WHERE c.org_id = :org_id AND d.org_id = :org_id AND d.status = 'ready'
+            {doc_filter}
             ORDER BY distance
             LIMIT :k
-            """
+            """.replace("{doc_filter}", "AND c.doc_id = ANY(:doc_ids)" if doc_ids else "")
         ),
-        {"q": literal, "org_id": org_id, "k": top_k},
+        {"q": literal, "org_id": org_id, "k": top_k, **({"doc_ids": list(doc_ids)} if doc_ids else {})},
     ).all()
     return [
-        {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "distance": float(r.distance)}
+        {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "distance": float(r.distance),
+         "doc_id": r.doc_id}
         for r in rows
     ]
 
 
-def _retrieve_python(db: Session, org_id: str, query_vector: list[float], top_k: int) -> list[dict]:
+def _retrieve_python(db: Session, org_id: str, query_vector: list[float], top_k: int,
+                     doc_ids: list[str] | None = None) -> list[dict]:
     """Fallback for SQLite (local dev and tests): same filter, cosine in Python."""
-    rows = db.execute(
-        select(DocumentChunk.text, DocumentChunk.chunk_index, DocumentChunk.embedding, Document.filename)
+    query = (
+        select(DocumentChunk.text, DocumentChunk.chunk_index, DocumentChunk.embedding, DocumentChunk.doc_id,
+               Document.filename)
         .join(Document, Document.id == DocumentChunk.doc_id)
         .where(DocumentChunk.org_id == org_id, Document.org_id == org_id, Document.status == "ready")
-    ).all()
+    )
+    if doc_ids:
+        query = query.where(DocumentChunk.doc_id.in_(doc_ids))
+    rows = db.execute(query).all()
     scored = sorted(
         (
-            {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index,
+            {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "doc_id": r.doc_id,
              "distance": _cosine_distance(query_vector, r.embedding)}
             for r in rows
         ),
@@ -150,7 +158,8 @@ def _retrieve_python(db: Session, org_id: str, query_vector: list[float], top_k:
     return scored[:top_k]
 
 
-def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Session | None = None) -> list[dict]:
+def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Session | None = None,
+                    doc_ids: list[str] | None = None) -> list[dict]:
     """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org."""
     top_k = top_k if top_k is not None else settings.retrieval_top_k
     query_vector = embed_texts([query])[0]
@@ -158,8 +167,8 @@ def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Sessi
     db = db or SessionLocal()
     try:
         if db.get_bind().dialect.name == "postgresql":
-            return _retrieve_pg(db, org_id, query_vector, top_k)
-        return _retrieve_python(db, org_id, query_vector, top_k)
+            return _retrieve_pg(db, org_id, query_vector, top_k, doc_ids)
+        return _retrieve_python(db, org_id, query_vector, top_k, doc_ids)
     finally:
         if own_session:
             db.close()

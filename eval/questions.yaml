@@ -1,0 +1,125 @@
+# Scored questions for the Northwind Freight demo workspace (eval/demo_company).
+#
+# Written before measuring, and not edited to make a run look better.
+#   expect_doc   file that must be retrieved (retrieval hit@k is scored on this)
+#   must_include at least one of these strings must appear in a good answer
+#                (scored only by the answer eval, which needs an LLM key)
+#   type         answerable | unanswerable | document_task
+#
+# Unanswerable questions check that DocuMind says "not in your documents"
+# instead of inventing an answer, and returns no citations.
+
+questions:
+  - id: q01
+    question: How much notice do I have to give after my probation is confirmed?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["30 days"]
+  - id: q02
+    question: What is the notice period during probation?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["7 days"]
+  - id: q03
+    question: How many days of annual leave do employees get?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["24"]
+  - id: q04
+    question: Can I carry forward unused annual leave?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["10"]
+  - id: q05
+    question: How long is paternity leave?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["10 working days"]
+  - id: q06
+    question: How many days a week can I work from home?
+    type: answerable
+    expect_doc: employee_handbook.txt
+    must_include: ["two days", "2 days"]
+  - id: q07
+    question: What is the hotel limit per night in Mumbai?
+    type: answerable
+    expect_doc: travel_expense_policy.txt
+    must_include: ["6,000", "6000"]
+  - id: q08
+    question: Within how many days must I submit an expense claim?
+    type: answerable
+    expect_doc: travel_expense_policy.txt
+    must_include: ["30 days"]
+  - id: q09
+    question: Can I fly business class on a long international flight?
+    type: answerable
+    expect_doc: travel_expense_policy.txt
+    must_include: ["6 hours"]
+  - id: q10
+    question: What is the daily allowance for domestic travel?
+    type: answerable
+    expect_doc: travel_expense_policy.txt
+    must_include: ["2,500", "2500"]
+  - id: q11
+    question: What is the minimum password length?
+    type: answerable
+    expect_doc: it_security_policy.txt
+    must_include: ["12 characters"]
+  - id: q12
+    question: How quickly do I need to report a phishing email, and to whom?
+    type: answerable
+    expect_doc: it_security_policy.txt
+    must_include: ["1 hour"]
+  - id: q13
+    question: Are USB drives allowed on company laptops?
+    type: answerable
+    expect_doc: it_security_policy.txt
+    must_include: ["blocked"]
+  - id: q14
+    question: What is the maximum value of a gift I can accept from a supplier?
+    type: answerable
+    expect_doc: code_of_conduct.txt
+    must_include: ["2,000", "2000"]
+  - id: q15
+    question: Can I report an ethics concern anonymously?
+    type: answerable
+    expect_doc: code_of_conduct.txt
+    must_include: ["anonymous"]
+  - id: q16
+    question: How much health insurance cover do we get?
+    type: answerable
+    expect_doc: benefits_guide.txt
+    must_include: ["5 lakh"]
+  - id: q17
+    question: What is the yearly learning budget?
+    type: answerable
+    expect_doc: benefits_guide.txt
+    must_include: ["30,000", "30000"]
+  - id: q18
+    question: How much is the employee referral bonus?
+    type: answerable
+    expect_doc: benefits_guide.txt
+    must_include: ["25,000", "25000"]
+
+  - id: u01
+    question: What is the company's policy on stock options?
+    type: unanswerable
+  - id: u02
+    question: Is there a dress code for the office?
+    type: unanswerable
+  - id: u03
+    question: How do I book a meeting room?
+    type: unanswerable
+
+  - id: d01
+    question: Summarise the travel and expense policy.
+    type: document_task
+    expect_doc: travel_expense_policy.txt
+  - id: d02
+    question: Review the IT security policy and rate it out of 10.
+    type: document_task
+    expect_doc: it_security_policy.txt
+  - id: d03
+    question: Give me the key points of the benefits guide.
+    type: document_task
+    expect_doc: benefits_guide.txt

@@ -1,78 +1,39 @@
-import os
-from pathlib import Path
+"""Create (or refresh) the Northwind Freight demo workspace for showing DocuMind.
 
-from pypdf import PdfReader
-from sqlalchemy import select
+    python -m app.seed_demo --email demo@yourdomain.com --password 'a-long-password'
 
-from app.core.database import SessionLocal, engine
+Loads the fictional company documents in eval/demo_company through the real
+upload pipeline. Safe to re-run: if the demo user already exists, nothing is
+duplicated. Run it once against production after deploying, then share the
+demo login (it is a separate workspace; no real customer data is visible).
+"""
+import argparse
+
+from sqlalchemy import func, select
+
+from app.core.database import SessionLocal
 from app.core.security import hash_password
-from app.models.models import Document, Org, User
-from app.services.rag import ingest_document
-
-
-def _doc_text_from_pdf(path: Path) -> str:
-    reader = PdfReader(str(path))
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-
-def _ensure_demo_org_and_user() -> tuple[Org, User]:
-    email = os.getenv("DEMO_EMAIL", "demo@documind.local")
-    password = os.getenv("DEMO_PASSWORD", "demo-password")
-
-    with SessionLocal() as db:
-        org = db.scalar(select(Org).where(Org.name == "Demo Org"))
-        if org is None:
-            org = Org(name="Demo Org")
-            db.add(org)
-            db.flush()
-
-        user = db.scalar(select(User).where(User.email == email))
-        if user is None:
-            user = User(email=email, hashed_password=hash_password(password), org_id=org.id, role="OWNER")
-            db.add(user)
-            db.flush()
-        elif user.org_id != org.id:
-            user.org_id = org.id
-
-        db.commit()
-        db.refresh(org)
-        db.refresh(user)
-        return org, user
-
-
-def _ingest_demo_docs(org_id: str, uploader_id: str) -> None:
-    doc_dir = Path(__file__).resolve().parent.parent / "demo_docs"
-    if not doc_dir.exists():
-        return
-
-    with SessionLocal() as db:
-        for path in sorted(doc_dir.glob("*.pdf")):
-            filename = path.name
-            existing = db.scalar(select(Document).where(Document.org_id == org_id, Document.filename == filename))
-            if existing is not None:
-                continue
-
-            doc = Document(org_id=org_id, uploaded_by=uploader_id, filename=filename, status="processing")
-            db.add(doc)
-            db.commit()
-            db.refresh(doc)
-
-            try:
-                text = _doc_text_from_pdf(path)
-                doc.num_chunks = ingest_document(doc.id, org_id, filename, text)
-                doc.status = "ready" if doc.num_chunks > 0 else "failed"
-                db.commit()
-            except Exception:
-                doc.status = "failed"
-                db.commit()
+from app.models.models import User
+from eval.harness import seed_demo_org
 
 
 def main() -> None:
-    from app.core.database import Base
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--email", required=True)
+    parser.add_argument("--password", required=True, help="at least 8 characters")
+    parser.add_argument("--org-name", default="Northwind Freight (demo)")
+    args = parser.parse_args()
+    if len(args.password) < 8:
+        parser.error("password must be at least 8 characters")
 
-    Base.metadata.create_all(bind=engine)
-    org, user = _ensure_demo_org_and_user()
-    _ingest_demo_docs(org.id, user.id)
+    email = args.email.strip().lower()
+    with SessionLocal() as db:
+        if db.scalar(select(User).where(func.lower(User.email) == email)):
+            print(f"{email} already exists; nothing to do.")
+            return
+        org_id, _ = seed_demo_org(db, org_name=args.org_name, email=email,
+                                  password_hash=hash_password(args.password))
+    print(f"Demo workspace ready (org {org_id}). Sign in as {email}.")
 
 
 if __name__ == "__main__":

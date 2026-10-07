@@ -37,9 +37,12 @@ class Settings(BaseSettings):
     max_upload_mb: int = 20
     # ~60 pages of dense text. Longer files are cut here and flagged `truncated`.
     max_document_chars: int = 200_000
-    retrieval_top_k: int = 3
+    retrieval_top_k: int = 6
     max_prior_turns: int = 2
     max_context_chars: int = 8_000
+    # Budget for whole-document tasks (summarise / review / compare). ~4k tokens,
+    # which stays inside free-tier per-minute token limits.
+    whole_doc_chars: int = 16_000
     daily_question_cap: int = 70      # whole deployment (protects the LLM bill)
     per_org_daily_cap: int = 50
     per_user_daily_cap: int = 10
