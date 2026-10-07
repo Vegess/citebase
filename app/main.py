@@ -6,8 +6,12 @@ Run locally:
 Interactive API docs at http://localhost:8000/docs
 """
 import logging
+import os
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,20 +20,22 @@ from slowapi.errors import RateLimitExceeded
 
 from pathlib import Path
 
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from secrets import compare_digest
+from sqlalchemy import func, select
+
 from app.core.config import get_settings
 from app.core.database import SessionLocal
-import app.models.models  # noqa: F401
+from app.core.logging_setup import configure_logging, recent_logs
+from app.models.models import Document, DocumentChunk, Job
 from app.routes import auth, chat, documents, org, users
 from app.routes.chat import limiter
+from app.services import ingestion  # noqa: F401 — registers the ingest job handler
+from app.services import jobs, metrics
 from app.services.quota import get_usage
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    force=True,
-)
-
 settings = get_settings()
+configure_logging(json_logs=settings.log_json)
 logger = logging.getLogger("app.main")
 active_provider_key = {
     "groq": settings.groq_api_key,
@@ -45,7 +51,24 @@ if not active_provider_key:
         settings.llm_provider,
     )
 
+STARTED_AT = datetime.now(timezone.utc).isoformat()
+# Render sets RENDER_GIT_COMMIT; a change in this value is how Vigil sees a deploy.
+COMMIT = os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "unknown"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    worker = None
+    if settings.worker_mode == "thread":
+        worker = jobs.Worker()
+        worker.start()
+    yield
+    if worker:
+        worker.stop()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="DocuMind",
     version="0.1.0",
     docs_url="/docs" if settings.debug else None,
@@ -55,6 +78,19 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.middleware("http")
+async def record_request_metrics(request: Request, call_next):
+    start = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        if not request.url.path.startswith("/metrics"):
+            metrics.record_request(status_code, int((time.perf_counter() - start) * 1000))
 
 
 @app.exception_handler(Exception)
@@ -100,3 +136,46 @@ def health():
         "daily_cap": settings.daily_question_cap,
         "quota_remaining": max(0, settings.daily_question_cap - questions_today),
     }
+
+
+# ---- Observability (read by Vigil) ----
+_bearer = HTTPBearer(auto_error=False)
+
+
+def require_metrics_token(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> None:
+    # Disabled unless METRICS_TOKEN is set; 404 so the endpoint isn't advertised.
+    if not settings.metrics_token:
+        raise HTTPException(status_code=404, detail="Not Found")
+    if credentials is None or not compare_digest(credentials.credentials, settings.metrics_token):
+        raise HTTPException(status_code=401, detail="Invalid metrics token")
+
+
+@app.get("/metrics", dependencies=[Depends(require_metrics_token)])
+def read_metrics():
+    with SessionLocal() as db:
+        docs_by_status = dict(db.execute(select(Document.status, func.count()).group_by(Document.status)).all())
+        chunks_total = db.scalar(select(func.count()).select_from(DocumentChunk)) or 0
+        jobs_by_status = dict(db.execute(select(Job.status, func.count()).group_by(Job.status)).all())
+        questions_today = get_usage(db)
+    model = {
+        "groq": settings.groq_model, "gemini": settings.gemini_model, "anthropic": settings.claude_model,
+    }.get(settings.llm_provider)
+    return {
+        **metrics.snapshot(),
+        "started_at": STARTED_AT,
+        "commit": COMMIT,
+        "llm_provider": settings.llm_provider,
+        "llm_model": model,
+        "llm_key_loaded": bool(active_provider_key),
+        "documents_total": sum(docs_by_status.values()),
+        "documents_by_status": docs_by_status,
+        "chunks_total": chunks_total,
+        "jobs_by_status": jobs_by_status,
+        "questions_today": questions_today,
+    }
+
+
+@app.get("/metrics/logs", dependencies=[Depends(require_metrics_token)])
+def read_recent_logs(since: str | None = None, level: str | None = None, contains: str | None = None,
+                     limit: int = 100):
+    return recent_logs.snapshot(since=since, level=level, contains=contains, limit=max(1, min(limit, 500)))

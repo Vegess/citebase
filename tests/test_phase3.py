@@ -13,7 +13,7 @@ def login(client, email: str):
     )
 
 
-def test_document_upload_returns_processing_and_status_polling(app_client):
+def test_document_upload_returns_queued_and_status_polling(app_client):
     signup_resp = signup(app_client, "bg@example.com")
     assert signup_resp.status_code == 201
     token = login(app_client, "bg@example.com").json()["access_token"]
@@ -27,12 +27,13 @@ def test_document_upload_returns_processing_and_status_polling(app_client):
 
     assert upload.status_code == 201
     doc_id = upload.json()["id"]
-    assert upload.json()["status"] == "processing"
+    # The upload response is written before the ingest job runs.
+    assert upload.json()["status"] == "queued"
 
     status = app_client.get(f"/documents/{doc_id}", headers=headers)
     assert status.status_code == 200
     assert status.json()["id"] == doc_id
-    assert status.json()["status"] in {"processing", "ready", "failed"}
+    assert status.json()["status"] == "ready"  # inline worker in tests has finished by now
 
 
 def test_chat_streaming_endpoint_returns_sse(app_client):

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, EmptyState, StatusBadge, useToast } from "../components/ui";
+import { Button, EmptyState, IN_PROGRESS, StatusBadge, useToast } from "../components/ui";
 import { DemoBanner } from "../components/DemoBanner";
 
 const POLL_MS = 2000;
@@ -36,7 +36,7 @@ export default function DocumentsPage() {
   // Ingestion runs in the background, so anything still processing is
   // re-checked until the backend marks it ready or failed.
   useEffect(() => {
-    const pending = docs.filter((d) => d.status === "processing");
+    const pending = docs.filter((d) => IN_PROGRESS.has(d.status));
     if (pending.length === 0) return;
 
     const timer = setTimeout(async () => {
@@ -96,8 +96,8 @@ export default function DocumentsPage() {
       <main className="mx-auto max-w-4xl px-5 py-10">
       <h1 className="font-display text-3xl text-ink">Documents</h1>
       <p className="mt-1 text-sm text-muted">
-        PDFs and text files. Each one is split, indexed, and made searchable for your
-        organisation only.
+        PDFs and text files. Each one is read, indexed, and made searchable for your
+        organisation only. Scanned PDFs (images of pages) aren't supported yet.
       </p>
 
       {!canUpload && (
@@ -170,8 +170,16 @@ export default function DocumentsPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-ink">{doc.filename}</p>
                   <p className="mt-0.5 font-mono text-[11px] text-muted">
-                    {doc.num_chunks} chunk{doc.num_chunks === 1 ? "" : "s"}
+                    {doc.status === "ready"
+                      ? `${doc.num_chunks} passage${doc.num_chunks === 1 ? "" : "s"} indexed`
+                      : new Date(doc.created_at).toLocaleDateString()}
+                    {doc.truncated && " · only the first part was indexed (file too long)"}
                   </p>
+                  {doc.error && doc.status !== "ready" && (
+                    <p className={`mt-1 text-xs ${IN_PROGRESS.has(doc.status) ? "text-muted" : "text-danger"}`}>
+                      {doc.error}
+                    </p>
+                  )}
                 </div>
                 <StatusBadge status={doc.status} />
                 {canRemove(doc) && (

@@ -17,6 +17,10 @@ def app_client(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    # Run queued jobs right after each request instead of on a worker thread,
+    # so a test sees a finished ingest as soon as the upload call returns.
+    monkeypatch.setenv("WORKER_MODE", "inline")
+    monkeypatch.setenv("LOG_JSON", "false")
 
     for name in list(sys.modules):
         if name == "app" or name.startswith("app."):
@@ -59,27 +63,6 @@ def app_client(monkeypatch, tmp_path):
                 # Normalize to unit length (like real embeddings)
                 vector = vector / np.linalg.norm(vector)
                 yield vector
-
-    class FakeCollection:
-        def __init__(self):
-            self.items = []
-
-        def add(self, ids, embeddings, documents, metadatas):
-            for doc_id, doc, meta in zip(ids, documents, metadatas):
-                self.items.append({"id": doc_id, "document": doc, "metadata": meta})
-
-        def query(self, query_embeddings, n_results, where):
-            filtered = [item for item in self.items if item["metadata"]["org_id"] == where["org_id"]]
-            return {
-                "documents": [[item["document"] for item in filtered[:n_results]]],
-                "metadatas": [[item["metadata"] for item in filtered[:n_results]]],
-                "distances": [[0.0 for _ in filtered[:n_results]]],
-            }
-
-        def delete(self, where):
-            self.items = [item for item in self.items if item["metadata"]["doc_id"] != where["$and"][0]["doc_id"]]
-
-    fake_collection = FakeCollection()
 
     def fake_get_embedder():
         return FakeEmbedder()
@@ -125,8 +108,6 @@ def app_client(monkeypatch, tmp_path):
         return FakeAnthropicClient()
 
     monkeypatch.setattr(rag_module, "get_embedder", fake_get_embedder)
-    monkeypatch.setattr(rag_module, "get_collection", lambda: fake_collection)
-    monkeypatch.setattr(documents_module, "delete_document_chunks", lambda doc_id, org_id: None)
     monkeypatch.setattr(generation_module, "get_client", fake_get_client)
 
     database_module.Base.metadata.drop_all(bind=database_module.engine)

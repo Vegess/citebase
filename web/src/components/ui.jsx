@@ -40,19 +40,34 @@ export function Field({ label, hint, ...props }) {
 
 const statusStyles = {
   ready: "bg-source-soft text-source",
-  processing: "bg-warn-soft text-warn",
+  queued: "bg-warn-soft text-warn",
+  chunking: "bg-warn-soft text-warn",
+  embedding: "bg-warn-soft text-warn",
   failed: "bg-danger-soft text-danger",
+  reupload_required: "bg-danger-soft text-danger",
 };
+
+const statusLabels = {
+  queued: "queued",
+  chunking: "reading",
+  embedding: "indexing",
+  ready: "ready",
+  failed: "failed",
+  reupload_required: "re-upload needed",
+};
+
+/** Statuses the backend is still working through; the UI polls these. */
+export const IN_PROGRESS = new Set(["queued", "chunking", "embedding"]);
 
 export function StatusBadge({ status }) {
   const style = statusStyles[status] ?? "bg-rule-soft text-muted";
   return (
     <span
       className={`inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[11px] tracking-tight ${style} ${
-        status === "processing" ? "pulse-soft" : ""
+        IN_PROGRESS.has(status) ? "pulse-soft" : ""
       }`}
     >
-      {status}
+      {statusLabels[status] ?? status}
     </span>
   );
 }

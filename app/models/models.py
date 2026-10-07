@@ -3,8 +3,11 @@ backbone of multi-tenant isolation (security concern #3)."""
 import uuid
 from datetime import date, datetime, timezone
 
+import json
+
 from sqlalchemy import Boolean, Date, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
-from sqlalchemy.sql.expression import true
+from sqlalchemy.types import TypeDecorator, UserDefinedType
+from sqlalchemy.sql.expression import false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -46,6 +49,42 @@ class User(Base):
     org: Mapped[Org] = relationship(back_populates="users")
 
 
+EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
+
+
+class _PgVector(UserDefinedType):
+    cache_ok = True
+
+    def get_col_spec(self, **kw):
+        return f"vector({EMBEDDING_DIM})"
+
+
+class Embedding(TypeDecorator):
+    """pgvector `vector(384)` on Postgres; JSON text everywhere else (tests, local SQLite).
+
+    Values cross the boundary as pgvector's text form "[0.1,0.2,...]", which is
+    also valid JSON, so one encoder serves both databases.
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(_PgVector())
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return "[" + ",".join(f"{float(x):.7g}" for x in value) + "]"
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return json.loads(value) if isinstance(value, str) else list(value)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -54,10 +93,67 @@ class Document(Base):
     uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     num_chunks: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="processing")  # processing | ready | failed
+    # Lifecycle: see app/services/lifecycle.py for the allowed transitions.
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     org: Mapped[Org] = relationship(back_populates="documents")
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
+    events: Mapped[list["DocumentEvent"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True, order_by="DocumentEvent.id"
+    )
+
+
+class DocumentChunk(Base):
+    """One searchable passage. Lives in the same database as its document, so
+    deleting a document removes its chunks in the same transaction."""
+    __tablename__ = "document_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    doc_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Embedding, nullable=False)
+
+    document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+class DocumentEvent(Base):
+    """Append-only history of every document status change."""
+    __tablename__ = "document_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    doc_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Job(Base):
+    """Durable background work. Claimed with SELECT ... FOR UPDATE SKIP LOCKED,
+    so several workers can share the table without taking the same job."""
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)  # queued|running|done|failed
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    run_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Conversation(Base):

@@ -31,16 +31,29 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 24 * 60
 
     # RAG
-    chroma_persist_dir: str = "./chroma_data"
+    chroma_persist_dir: str = "./chroma_data"  # unused since vectors moved to the database; kept so old .env files still load
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     claude_model: str = "claude-sonnet-4-6"
     max_upload_mb: int = 20
-    max_document_chars: int = 50_000
+    # ~60 pages of dense text. Longer files are cut here and flagged `truncated`.
+    max_document_chars: int = 200_000
     retrieval_top_k: int = 3
     max_prior_turns: int = 2
     max_context_chars: int = 8_000
-    daily_question_cap: int = 70
+    daily_question_cap: int = 70      # whole deployment (protects the LLM bill)
+    per_org_daily_cap: int = 50
     per_user_daily_cap: int = 10
+
+    # Background jobs: "thread" runs a worker inside the API process (Render),
+    # "inline" drains the queue after each request (tests), "off" for a
+    # separate worker process.
+    worker_mode: str = "thread"
+
+    # JSON log lines (set LOG_JSON=false for plain text while developing).
+    log_json: bool = True
+
+    # Bearer token for GET /metrics (read by Vigil). Unset = endpoint disabled.
+    metrics_token: str | None = None
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8")
 

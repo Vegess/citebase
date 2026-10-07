@@ -8,7 +8,8 @@ Upload your company documents, ask questions, get cited answers powered by your 
 
 - **Backend:** FastAPI with org isolation at SQL and vector layers
 - **Database:** PostgreSQL/Neon (production) or SQLite (local)
-- **Vector Store:** ChromaDB with org-scoped filtering
+- **Vector Store:** pgvector inside the same Postgres database (exact cosine search, org-filtered in SQL); plain-Python fallback on SQLite for local dev
+- **Background jobs:** Postgres-backed queue (`SELECT … FOR UPDATE SKIP LOCKED`) with retries and backoff; ingestion runs as a job through a strict document lifecycle
 - **Embeddings:** fastembed (ONNX Runtime) — lightweight alternative to sentence-transformers
 - **LLM:** Groq (default), Gemini, or Anthropic API
 - **Frontend:** React + Vite + Tailwind CSS
@@ -24,14 +25,16 @@ Upload your company documents, ask questions, get cited answers powered by your 
 | **Invites** | 32-byte random tokens, stored as SHA-256 hashes, expire after 7 days. Acceptance is atomic (`SELECT … FOR UPDATE` + conditional update), so an invite can create exactly one account even under concurrent requests |
 | **Audit log** | Org creation, invites, role changes, removals, uploads and deletions are recorded in the same transaction as the change |
 | **Rate Limiting** | 20 requests/min on `/chat/ask` via slowapi |
-| **Quota Caps** | Daily limit shared by the whole deployment (70 questions) + per-user limit (10 questions) |
+| **Quota Caps** | Daily caps per deployment, per org and per user, each enforced with a single conditional `UPDATE … WHERE count < cap`, so concurrent requests can't overshoot |
+| **Observability** | JSON logs; token-protected `GET /metrics` and `GET /metrics/logs`. Every degraded fallback answer is counted (`fallback_total`, `fallback_rate_5m`) and logged at WARNING |
 | **Prompt Injection** | Retrieved documents wrapped in tags, system prompt treats text as data not instructions |
 | **Input Validation** | Pydantic schemas on all endpoints |
 
 ## Limitations
 
 - **Cold starts:** Free-tier hosting has ~50-second cold starts after 15 minutes of inactivity
-- **Ephemeral storage:** Uploaded documents do not persist across container restarts (vector store is on ephemeral disk)
+- **Scanned PDFs:** files with no extractable text are rejected (no OCR yet)
+- **Long files:** text beyond `MAX_DOCUMENT_CHARS` (200k ≈ 60 pages) is not indexed; such documents are flagged `truncated`
 - **Daily quota:** Subject to daily question limits per org and per user
 - **Model availability:** Depends on chosen LLM provider's API availability
 
@@ -88,7 +91,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 43 tests should pass.
+All 59 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 
@@ -146,7 +149,9 @@ uvicorn app.main:app --reload
 - `GET /org/audit` — admin+
 - `POST /documents` — upload PDF or plain text
 - `GET /documents` — list documents
-- `GET /documents/{id}` — poll document ingestion status
+- `GET /documents/{id}` — poll document status (`queued → chunking → embedding → ready`, or `failed`)
+- `GET /documents/{id}/events` — full status history
+- `GET /metrics`, `GET /metrics/logs` — `Authorization: Bearer $METRICS_TOKEN` (404 when unset)
 - `POST /chat/ask` — non-streaming answer
 - `POST /chat/ask/stream` — SSE streaming answer
 - `GET /health` — health check
