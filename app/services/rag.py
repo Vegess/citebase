@@ -1,21 +1,27 @@
 """RAG pipeline: chunk -> embed -> store -> retrieve.
 
-Org isolation (security concern #3) is enforced HERE: every chunk is stored
-with org_id metadata, and every query filters on it. A user can never
-retrieve another org's chunks even if they craft a malicious request.
+Vectors live in the main database (pgvector on Postgres), next to the
+documents they belong to. Before this they lived in ChromaDB on Render's
+temporary disk, so every restart silently emptied the index while the
+documents table still said "ready".
+
+Org isolation (security concern #3) is enforced HERE: every chunk row
+carries org_id, and every query filters on it in SQL.
 """
+import math
 import re
 
-import chromadb
-from chromadb.api import ClientAPI
 from fastembed import TextEmbedding
+from sqlalchemy import delete, select, text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import SessionLocal
+from app.models.models import Document, DocumentChunk
 
 settings = get_settings()
 
 _embedder: TextEmbedding | None = None
-_chroma: ClientAPI | None = None
 
 
 def get_embedder() -> TextEmbedding:
@@ -25,14 +31,8 @@ def get_embedder() -> TextEmbedding:
     return _embedder
 
 
-def get_collection():
-    global _chroma
-    if _chroma is None:
-        _chroma = chromadb.PersistentClient(path=settings.chroma_persist_dir)
-    return _chroma.get_or_create_collection(
-        name="documind_chunks",
-        metadata={"hnsw:space": "cosine"},
-    )
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    return [[float(x) for x in v] for v in get_embedder().embed(texts)]
 
 
 def _sanitize_extracted_text(text: str) -> str:
@@ -92,59 +92,74 @@ def chunk_text(text: str, target_size: int = 800, overlap_sentences: int = 2) ->
     return chunks
 
 
-def ingest_document(doc_id: str, org_id: str, filename: str, text: str) -> int:
-    """Chunk, embed, and store a document. Returns number of chunks."""
-    text = _sanitize_extracted_text(text)[: settings.max_document_chars]
-    chunks = chunk_text(text)
-    if not chunks:
-        return 0
-
-    embedder = get_embedder()
-    embeddings = [v.tolist() for v in embedder.embed(chunks)]
-
-    collection = get_collection()
-    collection.add(
-        ids=[f"{doc_id}:{i}" for i in range(len(chunks))],
-        embeddings=embeddings,
-        documents=chunks,
-        metadatas=[
-            {"org_id": org_id, "doc_id": doc_id, "filename": filename, "chunk_index": i}
-            for i in range(len(chunks))
-        ],
+def store_chunks(db: Session, doc_id: str, org_id: str, chunks: list[str], embeddings: list[list[float]]) -> int:
+    """Replace a document's chunks. Idempotent, so a retried job never duplicates rows."""
+    db.execute(delete(DocumentChunk).where(DocumentChunk.doc_id == doc_id))
+    db.add_all(
+        DocumentChunk(doc_id=doc_id, org_id=org_id, chunk_index=i, text=chunk, embedding=vector)
+        for i, (chunk, vector) in enumerate(zip(chunks, embeddings))
     )
     return len(chunks)
 
 
-def retrieve_chunks(org_id: str, query: str, top_k: int | None = None) -> list[dict]:
+def _cosine_distance(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return 1.0 - (dot / norm if norm else 0.0)
+
+
+def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int) -> list[dict]:
+    # Exact search filtered by org_id (btree index), not an ANN index: an HNSW
+    # scan followed by an org filter can return fewer than top_k rows for small
+    # orgs. Exact search is correct and fast at this scale (< ~100k chunks/org).
+    literal = "[" + ",".join(f"{x:.7g}" for x in query_vector) + "]"
+    rows = db.execute(
+        text(
+            """
+            SELECT c.text, d.filename, c.chunk_index, c.embedding <=> CAST(:q AS vector) AS distance
+            FROM document_chunks c
+            JOIN documents d ON d.id = c.doc_id
+            WHERE c.org_id = :org_id AND d.org_id = :org_id AND d.status = 'ready'
+            ORDER BY distance
+            LIMIT :k
+            """
+        ),
+        {"q": literal, "org_id": org_id, "k": top_k},
+    ).all()
+    return [
+        {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "distance": float(r.distance)}
+        for r in rows
+    ]
+
+
+def _retrieve_python(db: Session, org_id: str, query_vector: list[float], top_k: int) -> list[dict]:
+    """Fallback for SQLite (local dev and tests): same filter, cosine in Python."""
+    rows = db.execute(
+        select(DocumentChunk.text, DocumentChunk.chunk_index, DocumentChunk.embedding, Document.filename)
+        .join(Document, Document.id == DocumentChunk.doc_id)
+        .where(DocumentChunk.org_id == org_id, Document.org_id == org_id, Document.status == "ready")
+    ).all()
+    scored = sorted(
+        (
+            {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index,
+             "distance": _cosine_distance(query_vector, r.embedding)}
+            for r in rows
+        ),
+        key=lambda item: item["distance"],
+    )
+    return scored[:top_k]
+
+
+def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Session | None = None) -> list[dict]:
     """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org."""
     top_k = top_k if top_k is not None else settings.retrieval_top_k
-    embedder = get_embedder()
-    query_embedding = [v.tolist() for v in embedder.embed([query])]
-
-    collection = get_collection()
-    results = collection.query(
-        query_embeddings=query_embedding,
-        n_results=top_k,
-        where={"org_id": org_id},  # org isolation — non-negotiable
-    )
-
-    chunks = []
-    if results["documents"] and results["documents"][0]:
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        ):
-            chunks.append({
-                "text": doc,
-                "filename": meta["filename"],
-                "chunk_index": meta["chunk_index"],
-                "distance": dist,
-            })
-    return chunks
-
-
-def delete_document_chunks(doc_id: str, org_id: str) -> None:
-    """Remove all chunks for a document (scoped to org for safety)."""
-    collection = get_collection()
-    collection.delete(where={"$and": [{"doc_id": doc_id}, {"org_id": org_id}]})
+    query_vector = embed_texts([query])[0]
+    own_session = db is None
+    db = db or SessionLocal()
+    try:
+        if db.get_bind().dialect.name == "postgresql":
+            return _retrieve_pg(db, org_id, query_vector, top_k)
+        return _retrieve_python(db, org_id, query_vector, top_k)
+    finally:
+        if own_session:
+            db.close()

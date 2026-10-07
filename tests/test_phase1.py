@@ -122,11 +122,9 @@ def test_sql_and_vector_queries_are_org_scoped(app_client):
         assert not any(row.org_id == org_b_record.id for row in sql_rows)
 
     from app.services import rag
-    collection = rag.get_collection()
-    vector_results = collection.query(query_embeddings=[[0.0, 0.0, 0.0]], n_results=10, where={"org_id": org_a_record.id})
-    vector_names = [meta["filename"] for meta in vector_results["metadatas"][0]]
-    assert vector_names == ["alpha.txt"]
-    assert all(meta["org_id"] != org_b_record.id for meta in vector_results["metadatas"][0])
+    vector_results = rag.retrieve_chunks(org_a_record.id, "doc", top_k=10)
+    assert [hit["filename"] for hit in vector_results] == ["alpha.txt"]
+    assert rag.retrieve_chunks(org_b_record.id, "Alpha doc for OrgA.", top_k=10)[0]["filename"] == "beta.txt"
 
 
 def test_document_delete_removes_vector_entries(app_client):
@@ -144,7 +142,7 @@ def test_document_delete_removes_vector_entries(app_client):
     doc_id = upload_resp.json()["id"]
 
     r1 = app_client.get("/documents", headers=headers)
-    assert any(doc["id"] == doc_id for doc in r1.json())
+    assert any(doc["id"] == doc_id and doc["status"] == "ready" and doc["num_chunks"] == 1 for doc in r1.json())
 
     delete_resp = app_client.delete(f"/documents/{doc_id}", headers=headers)
     assert delete_resp.status_code == 204
@@ -152,10 +150,12 @@ def test_document_delete_removes_vector_entries(app_client):
     r2 = app_client.get("/documents", headers=headers)
     assert all(doc["id"] != doc_id for doc in r2.json())
 
-    from app.services import rag
-    collection = rag.get_collection()
-    results = collection.query(query_embeddings=[[0.0, 0.0, 0.0]], n_results=10, where={"org_id": signup_resp.json().get("org_id", "")})
-    assert all(item["doc_id"] != doc_id for item in results["metadatas"][0])
+    from app.core.database import SessionLocal
+    from app.models.models import DocumentChunk, DocumentEvent
+    from sqlalchemy import func, select
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(DocumentChunk).where(DocumentChunk.doc_id == doc_id)) == 0
+        assert db.scalar(select(func.count()).select_from(DocumentEvent).where(DocumentEvent.doc_id == doc_id)) == 0
 
 
 def test_org_isolation_blocks_other_org_chunks(app_client):

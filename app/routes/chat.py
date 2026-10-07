@@ -25,6 +25,7 @@ from app.models.schemas import (
     ConversationMessageOut,
     ConversationOut,
 )
+from app.services import metrics
 from app.services.citations import select_citations
 from app.services.generation import GroqRateLimitExceeded, generate_answer, stream_answer
 from app.services.quota import release_question, reserve_question
@@ -156,14 +157,15 @@ def ask(
 ):
     start = time.perf_counter()
     conversation = _ensure_conversation(body, user, db)
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k)
+    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k, db=db)
+    metrics.record_chat(len(chunks))
     history = _load_history(conversation, db)
 
-    reserve_question(db, user.id)
+    reserve_question(db, user.id, org_id=user.org_id)
     try:
         answer = generate_answer(body.question, chunks, prior_turns=history)
     except GroqRateLimitExceeded:
-        release_question(db, user.id)
+        release_question(db, user.id, org_id=user.org_id)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="The demo is busy right now. Please try again in a moment.",
@@ -222,9 +224,10 @@ def ask_stream(
     user_id = user.id
     org_id = user.org_id
     conversation = _ensure_conversation(body, user, db)
-    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k)
+    chunks = retrieve_chunks(org_id=user.org_id, query=body.question, top_k=settings.retrieval_top_k, db=db)
+    metrics.record_chat(len(chunks))
     history = _load_history(conversation, db)
-    reserve_question(db, user_id)
+    reserve_question(db, user_id, org_id=org_id)
 
     if conversation is None:
         conversation = Conversation(org_id=user.org_id, user_id=user.id, title=DEFAULT_TITLE)
@@ -238,7 +241,7 @@ def ask_stream(
     try:
         first_chunk = next(answer_stream)
     except GroqRateLimitExceeded:
-        release_question(db, user_id)
+        release_question(db, user_id, org_id=org_id)
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

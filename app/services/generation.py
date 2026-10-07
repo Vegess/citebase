@@ -15,6 +15,7 @@ from google.genai import types
 from groq import Groq, RateLimitError
 
 from app.core.config import get_settings
+from app.services import metrics
 
 settings = get_settings()
 
@@ -127,6 +128,17 @@ def _build_local_answer(question: str, chunks: list[dict]) -> str:
         f"Based on the uploaded context from {sources}, the closest match says: \"{best_chunk.strip()}\" [1]. "
         f"If you want a fuller answer, please verify the active LLM provider configuration or refine the question."
     )
+
+
+def _fallback(question: str, chunks: list[dict], reason: str) -> str:
+    """Degraded answer. Always counted and logged at WARNING: a fallback must
+    never pass for a normal answer (see app/services/metrics.py)."""
+    metrics.record_fallback(reason)
+    logger.warning(
+        "Serving local fallback answer reason=%s provider=%s", reason, settings.llm_provider,
+        extra={"fallback": True, "fallback_reason": reason, "provider": settings.llm_provider},
+    )
+    return _build_local_answer(question, chunks)
 
 
 def _generate_anthropic(question: str, chunks: list[dict], prior_turns: list[dict] | None = None) -> str:
@@ -268,21 +280,21 @@ def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] |
         active_key = getattr(settings, "groq_api_key", None)
 
     if not active_key:
-        return _build_local_answer(question, chunks)
+        return _fallback(question, chunks, "missing_api_key")
 
     if active_provider == "anthropic":
         try:
             return _generate_anthropic(question, chunks, prior_turns)
         except Exception:
             logger.exception("Claude call failed; falling back to local answer")
-            return _build_local_answer(question, chunks)
+            return _fallback(question, chunks, "provider_error")
 
     if active_provider == "gemini":
         try:
             return _generate_gemini(question, chunks, prior_turns)
         except Exception:
             logger.exception("Gemini call failed; falling back to local answer")
-            return _build_local_answer(question, chunks)
+            return _fallback(question, chunks, "provider_error")
 
     if active_provider == "groq":
         try:
@@ -291,10 +303,10 @@ def generate_answer(question: str, chunks: list[dict], prior_turns: list[dict] |
             raise
         except Exception:
             logger.exception("Groq call failed; falling back to local answer")
-            return _build_local_answer(question, chunks)
+            return _fallback(question, chunks, "provider_error")
 
     logger.error("Unknown LLM provider configured: %s", active_provider)
-    return _build_local_answer(question, chunks)
+    return _fallback(question, chunks, "unknown_provider")
 
 
 def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | None = None):
@@ -313,7 +325,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
         active_key = getattr(settings, "groq_api_key", None)
 
     if not active_key:
-        yield _build_local_answer(question, chunks)
+        yield _fallback(question, chunks, "missing_api_key")
         return
 
     if active_provider == "anthropic":
@@ -321,7 +333,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
             yield from _stream_anthropic(question, chunks, prior_turns)
         except Exception:
             logger.exception("Claude streaming failed; falling back to local answer")
-            yield _build_local_answer(question, chunks)
+            yield _fallback(question, chunks, "provider_error")
         return
 
     if active_provider == "gemini":
@@ -329,7 +341,7 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
             yield from _stream_gemini(question, chunks, prior_turns)
         except Exception:
             logger.exception("Gemini streaming failed; falling back to local answer")
-            yield _build_local_answer(question, chunks)
+            yield _fallback(question, chunks, "provider_error")
         return
 
     if active_provider == "groq":
@@ -339,8 +351,8 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
             raise
         except Exception:
             logger.exception("Groq streaming failed; falling back to local answer")
-            yield _build_local_answer(question, chunks)
+            yield _fallback(question, chunks, "provider_error")
         return
 
     logger.error("Unknown LLM provider configured: %s", active_provider)
-    yield _build_local_answer(question, chunks)
+    yield _fallback(question, chunks, "unknown_provider")

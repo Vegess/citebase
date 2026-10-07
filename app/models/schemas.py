@@ -25,6 +25,21 @@ class DocumentOut(BaseModel):
     uploaded_by: str
     num_chunks: int
     status: str
+    error: str | None = None
+    truncated: bool = False
+    char_count: int | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentEventOut(BaseModel):
+    id: int
+    from_status: str | None
+    to_status: str
+    detail: str | None
     created_at: datetime
 
     class Config:
