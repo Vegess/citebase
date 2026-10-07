@@ -24,11 +24,12 @@ from app.models.schemas import (
     ConversationDetailOut,
     ConversationMessageOut,
     ConversationOut,
+    FeedbackRequest,
 )
 from app.services import metrics
 from app.services.answer_plan import plan_answer
-from app.services.citations import normalize_markers, select_citations
-from app.services.generation import GroqRateLimitExceeded, generate_answer, stream_answer
+from app.services.citations import looks_like_abstention, normalize_markers, select_citations
+from app.services.generation import GroqRateLimitExceeded, generate_answer, is_fallback, stream_answer
 from app.services.quota import release_question, reserve_question
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -75,6 +76,17 @@ def _load_history(conversation: Conversation | None, db: Session) -> list[dict]:
 
 
 DEFAULT_TITLE = "New conversation"
+
+
+def classify_answer(answer: str, chunks: list[dict], used: list[dict]) -> str:
+    """Recorded on every assistant message; drives Insights (knowledge gaps)."""
+    if is_fallback(answer):
+        return "fallback"
+    if not chunks:
+        return "no_sources"
+    if not used and looks_like_abstention(answer):
+        return "abstained"
+    return "answered"
 
 
 def _title_from_question(question: str) -> str:
@@ -132,6 +144,8 @@ def get_conversation(conversation_id: str, user: User = Depends(get_current_user
                     Citation(filename=c["filename"], chunk_index=c["chunk_index"], n=c.get("n"))
                     for c in json.loads(msg.citations)
                 ] if msg.citations else None,
+                answer_kind=msg.answer_kind,
+                feedback=msg.feedback,
                 created_at=msg.created_at,
             )
             for msg in conversation.messages
@@ -181,6 +195,7 @@ def ask(
         db.flush()
     _name_if_untitled(conversation, body.question)
     used = select_citations(answer, chunks)
+    kind = classify_answer(answer, chunks, used)
 
     db.add(
         ConversationMessage(
@@ -191,16 +206,18 @@ def ask(
             content=body.question,
         )
     )
-    db.add(
-        ConversationMessage(
-            conversation_id=conversation.id,
-            org_id=user.org_id,
-            user_id=user.id,
-            role="assistant",
-            content=answer,
-            citations=json.dumps(used),
-        )
+    db.flush()  # keep the user row strictly before the assistant row
+    assistant = ConversationMessage(
+        conversation_id=conversation.id,
+        org_id=user.org_id,
+        user_id=user.id,
+        role="assistant",
+        content=answer,
+        citations=json.dumps(used),
+        answer_kind=kind,
+        answer_mode=plan.mode,
     )
+    db.add(assistant)
     conversation.updated_at = datetime.now(timezone.utc)
     db.commit()
 
@@ -214,7 +231,7 @@ def ask(
         len(chunks),
         plan.mode,
     )
-    return AskResponse(answer=answer, citations=citations)
+    return AskResponse(answer=answer, citations=citations, message_id=assistant.id, answer_kind=kind)
 
 
 @router.post("/ask/stream")
@@ -279,20 +296,23 @@ def ask_stream(
 
             full_answer = normalize_markers(full_answer)
             citations = select_citations(full_answer, chunks)
-            yield f"data: {json.dumps({'citations': citations})}\n\n"
-            yield "data: [DONE]\n\n"
-
-            local_db.add(
-                ConversationMessage(
-                    conversation_id=conversation_id,
-                    org_id=org_id,
-                    user_id=user_id,
-                    role="assistant",
-                    content=full_answer,
-                    citations=json.dumps(citations),
-                )
+            kind = classify_answer(full_answer, chunks, citations)
+            assistant = ConversationMessage(
+                conversation_id=conversation_id,
+                org_id=org_id,
+                user_id=user_id,
+                role="assistant",
+                content=full_answer,
+                citations=json.dumps(citations),
+                answer_kind=kind,
+                answer_mode=plan.mode,
             )
+            local_db.add(assistant)
             local_db.commit()
+            # Saved before the final events so the client gets an id it can rate.
+            yield f"data: {json.dumps({'citations': citations})}\n\n"
+            yield f"data: {json.dumps({'message_id': assistant.id, 'answer_kind': kind})}\n\n"
+            yield "data: [DONE]\n\n"
 
             latency_ms = int((time.perf_counter() - start) * 1000)
             logger.info(
@@ -306,3 +326,16 @@ def ask_stream(
             local_db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/messages/{message_id}/feedback")
+def rate_answer(message_id: str, body: FeedbackRequest, user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """Thumbs up/down on one of your own answers. Feeds the Insights page."""
+    message = db.get(ConversationMessage, message_id)
+    if (message is None or message.org_id != user.org_id or message.user_id != user.id
+            or message.role != "assistant"):
+        raise HTTPException(status_code=404, detail="Message not found")
+    message.feedback = body.value or None
+    db.commit()
+    return {"feedback": message.feedback}

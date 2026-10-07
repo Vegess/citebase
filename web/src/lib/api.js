@@ -63,6 +63,26 @@ async function request(path, { token, method = "GET", body, form, signal } = {})
   return res.json();
 }
 
+/* ---------------- server wake-up ---------------- */
+
+/**
+ * Free hosting puts the API to sleep when idle. Ping it as soon as the site
+ * opens so it is awake by the time someone signs in or asks. Resolves when
+ * the server answers; retries for up to ~3 minutes.
+ */
+export async function wakeServer({ attempts = 18, delayMs = 10_000 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetch(`${BASE}/ping`, { cache: "no-store" });
+      if (res.ok) return true;
+    } catch {
+      /* still asleep or starting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 /* ---------------- auth ---------------- */
 
 export const signup = (email, password, orgName) =>
@@ -120,6 +140,15 @@ export const previewInvite = (inviteToken) =>
 export const acceptInvite = (inviteToken, password) =>
   request("/auth/accept-invite", { method: "POST", body: { token: inviteToken, password } });
 
+/* ---------------- suggestions, feedback, insights ---------------- */
+
+export const getSuggestions = (token) => request("/documents/suggestions", { token });
+
+export const rateAnswer = (token, messageId, value) =>
+  request(`/chat/messages/${messageId}/feedback`, { token, method: "POST", body: { value } });
+
+export const getInsights = (token, days = 30) => request(`/insights?days=${days}`, { token });
+
 /* ---------------- chat ---------------- */
 
 export const ask = (token, question, conversationId) =>
@@ -148,7 +177,7 @@ export const deleteConversation = (token, conversationId) =>
  * onToken(textChunk)  — called as text arrives
  * onCitations(list)   — called once sources are known
  */
-export async function askStream(token, question, { conversationId, onToken, onCitations, signal } = {}) {
+export async function askStream(token, question, { conversationId, onToken, onCitations, onMeta, signal } = {}) {
   const res = await fetch(`${BASE}/chat/ask/stream`, {
     method: "POST",
     headers: {
@@ -182,6 +211,7 @@ export async function askStream(token, question, { conversationId, onToken, onCi
 
     if (parsed.error) throw new ApiError(500, parsed.error);
     if (parsed.citations) onCitations?.(parsed.citations);
+    if (parsed.message_id) onMeta?.({ id: parsed.message_id, answer_kind: parsed.answer_kind });
 
     const text = parsed.text ?? parsed.delta ?? parsed.content;
     if (typeof text === "string" && text) onToken?.(text);

@@ -7,6 +7,7 @@ Interactive API docs at http://localhost:8000/docs
 """
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -28,10 +29,10 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.logging_setup import configure_logging, recent_logs
 from app.models.models import Document, DocumentChunk, Job
-from app.routes import auth, chat, documents, org, users
+from app.routes import auth, chat, documents, insights, org, users
 from app.routes.chat import limiter
-from app.services import ingestion  # noqa: F401 — registers the ingest job handler
-from app.services import jobs, metrics
+from app.services import ingestion, summaries  # noqa: F401 — register job handlers
+from app.services import jobs, metrics, rag
 from app.services.quota import get_usage
 
 settings = get_settings()
@@ -56,12 +57,25 @@ STARTED_AT = datetime.now(timezone.utc).isoformat()
 COMMIT = os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "unknown"
 
 
+def _warm_embedder() -> None:
+    """Load the embedding model at startup, off the request path, so the first
+    question after a cold start does not pay for it."""
+    try:
+        started = time.perf_counter()
+        list(rag.get_embedder().embed(["warm up"]))
+        logger.info("Embedding model ready in %.1fs", time.perf_counter() - started)
+    except Exception:  # noqa: BLE001 — a failed warm-up is retried on first use
+        logger.exception("Embedding model warm-up failed")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     worker = None
     if settings.worker_mode == "thread":
         worker = jobs.Worker()
         worker.start()
+    if settings.warm_embedder:
+        threading.Thread(target=_warm_embedder, name="embedder-warmup", daemon=True).start()
     yield
     if worker:
         worker.stop()
@@ -89,7 +103,7 @@ async def record_request_metrics(request: Request, call_next):
         status_code = response.status_code
         return response
     finally:
-        if not request.url.path.startswith("/metrics"):
+        if not request.url.path.startswith(("/metrics", "/ping")):
             metrics.record_request(status_code, int((time.perf_counter() - start) * 1000))
 
 
@@ -120,10 +134,19 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+# Before documents: /documents/suggestions must not be captured by /documents/{doc_id}.
+app.include_router(insights.router)
 app.include_router(documents.router)
 app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(org.router)
+
+
+@app.get("/ping")
+def ping():
+    """Liveness only. Touches no database, so an uptime monitor hitting it every
+    few minutes keeps the server awake without keeping Neon awake."""
+    return {"status": "ok"}
 
 
 @app.get("/health")

@@ -38,9 +38,14 @@ export function Navbar() {
             Ask
           </NavLink>
           {hasRole(user, "ADMIN") && (
-            <NavLink to="/team" className={linkClass}>
-              Team
-            </NavLink>
+            <>
+              <NavLink to="/insights" className={linkClass}>
+                Insights
+              </NavLink>
+              <NavLink to="/team" className={linkClass}>
+                Team
+              </NavLink>
+            </>
           )}
         </nav>
 

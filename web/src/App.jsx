@@ -7,12 +7,16 @@ import { AcceptInvitePage, LoginPage, SignupPage } from "./pages/Auth";
 import DocumentsPage from "./pages/Documents";
 import ChatPage from "./pages/Chat";
 import TeamPage from "./pages/Team";
+import InsightsPage from "./pages/Insights";
+import { QuickAsk } from "./components/QuickAsk";
+import { ServerWake } from "./components/ServerWake";
 
 function AppShell({ children }) {
   return (
     <>
       <Navbar />
       {children}
+      <QuickAsk />
     </>
   );
 }
@@ -22,6 +26,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
+          <ServerWake />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
@@ -55,6 +60,17 @@ export default function App() {
                 <ProtectedRoute>
                   <AppShell>
                     <TeamPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/insights"
+              element={
+                <ProtectedRoute>
+                  <AppShell>
+                    <InsightsPage />
                   </AppShell>
                 </ProtectedRoute>
               }

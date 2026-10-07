@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # separate worker process.
     worker_mode: str = "thread"
 
+    # Load the embedding model in the background at startup (off in tests).
+    warm_embedder: bool = True
+
     # JSON log lines (set LOG_JSON=false for plain text while developing).
     log_json: bool = True
 

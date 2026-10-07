@@ -9,6 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bake the embedding model into the image. Without this, fastembed downloads it
+# into /tmp on the first question after every cold start (Render's disk is
+# wiped when the free instance sleeps), which made first answers take minutes.
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+RUN python -c "from fastembed import TextEmbedding; list(TextEmbedding('${EMBEDDING_MODEL}').embed(['warm up']))"
+
 COPY . .
 
 ENV PYTHONUNBUFFERED=1

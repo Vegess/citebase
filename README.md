@@ -22,6 +22,13 @@ Upload your company documents, ask questions, get cited answers powered by your 
 - Naming a file in a question ("in the travel policy, …") searches only that file.
 - Sources are numbered; only sources the answer cites are shown, whatever bracket style the model uses (`[1]`, `【1】`, `[^1]`).
 
+## Automation and insights
+
+- **On every upload**, once the document is indexed, a follow-up job writes a 2–3 sentence summary and three questions the document answers (only when an LLM key is set; a degraded fallback reply is never saved as a summary — the job retries). They show under the file name and as starter cards on the Ask page.
+- **Every answer is classified** as answered / not in your documents / degraded, and can be rated 👍 / 👎.
+- **Insights** (admins): questions per day, answer rate, most-asked questions, **knowledge gaps** (asked but not covered by any document — what to upload next), documents cited most, and answers marked unhelpful. Questions are shown without who asked them.
+- **Quick ask**: a floating button on every page sends a question straight to a new conversation.
+
 ## Evaluation
 
 `eval/demo_company/` is a fictional company (Northwind Freight: handbook, travel, IT security, code of conduct, benefits). `eval/questions.yaml` holds 24 scored questions written before measuring: 18 answerable, 3 that the documents cannot answer, and 3 whole-document tasks.
@@ -109,7 +116,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 86 tests should pass.
+All 97 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 

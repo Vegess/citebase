@@ -98,6 +98,9 @@ class Document(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    # Written by the summarize_document job when an LLM key is configured.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_questions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of strings
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -184,6 +187,10 @@ class ConversationMessage(Base):
     role: Mapped[str] = mapped_column(String(10), nullable=False)  # user | assistant
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Assistant rows only. answer_kind: answered | abstained | no_sources | fallback.
+    answer_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    answer_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)  # question | document
+    feedback: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 helpful, -1 not helpful
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

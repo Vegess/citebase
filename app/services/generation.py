@@ -125,6 +125,24 @@ def _build_messages(
     return messages
 
 
+# Every degraded answer starts with this, so callers can label it (never pass
+# it off as a real answer) and jobs can treat it as a failure and retry.
+FALLBACK_PREFIX = "[Generation unavailable — showing the closest matching passage.]"
+
+
+def is_fallback(answer: str) -> bool:
+    return (answer or "").startswith(FALLBACK_PREFIX)
+
+
+def llm_configured() -> bool:
+    key = {
+        "anthropic": getattr(settings, "anthropic_api_key", None),
+        "gemini": getattr(settings, "google_api_key", None),
+        "groq": getattr(settings, "groq_api_key", None),
+    }.get(settings.llm_provider)
+    return bool(key)
+
+
 def _build_local_answer(question: str, chunks: list[dict]) -> str:
     if not chunks:
         return ("I couldn't find anything relevant in your organization's documents. "
@@ -133,7 +151,7 @@ def _build_local_answer(question: str, chunks: list[dict]) -> str:
     sources = ", ".join({chunk.get("filename", "document") for chunk in chunks})
     best_chunk = chunks[0]["text"]
     return (
-        "[Generation unavailable — showing the closest matching passage.] "
+        f"{FALLBACK_PREFIX} "
         f"Based on the uploaded context from {sources}, the closest match says: \"{best_chunk.strip()}\" [1]. "
         f"If you want a fuller answer, please verify the active LLM provider configuration or refine the question."
     )

@@ -10,6 +10,7 @@ carries org_id, and every query filters on it in SQL.
 """
 import math
 import re
+import threading
 
 from fastembed import TextEmbedding
 from sqlalchemy import delete, select, text
@@ -22,12 +23,18 @@ from app.models.models import Document, DocumentChunk
 settings = get_settings()
 
 _embedder: TextEmbedding | None = None
+_embedder_lock = threading.Lock()
 
 
 def get_embedder() -> TextEmbedding:
+    """Load the model once. The lock stops the startup warm-up and an early
+    request from loading two copies at the same time (memory is tight on the
+    free tier)."""
     global _embedder
     if _embedder is None:
-        _embedder = TextEmbedding(model_name=settings.embedding_model)
+        with _embedder_lock:
+            if _embedder is None:
+                _embedder = TextEmbedding(model_name=settings.embedding_model)
     return _embedder
 
 
