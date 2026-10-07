@@ -9,6 +9,7 @@ import ChatPage from "./pages/Chat";
 import TeamPage from "./pages/Team";
 import InsightsPage from "./pages/Insights";
 import { QuickAsk } from "./components/QuickAsk";
+import { ServerWake } from "./components/ServerWake";
 
 function AppShell({ children }) {
   return (
@@ -25,6 +26,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
+          <ServerWake />
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />

@@ -68,6 +68,8 @@ def _paired_turns(db: Session, org_id: str, since: datetime) -> list[tuple[str, 
             last_question[msg.conversation_id] = msg.content
         elif msg.role == "assistant" and msg.conversation_id in last_question:
             pairs.append((last_question.pop(msg.conversation_id), msg))
+    # Across conversations, oldest first: "first phrasing wins" is then stable.
+    pairs.sort(key=lambda pair: (pair[1].created_at, pair[1].id))
     return pairs
 
 

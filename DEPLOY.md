@@ -8,6 +8,14 @@
 > Vectors are stored in Neon with pgvector (migration 0005 runs
 > `CREATE EXTENSION vector`), so nothing important lives on Render's temporary
 > disk any more. Set `METRICS_TOKEN` on Render to enable `/metrics` for Vigil.
+>
+> **Cold starts.** The free Render instance sleeps after 15 minutes without
+> traffic and takes ~30–60 s to wake. The embedding model is baked into the
+> Docker image and loaded at startup, so the first question no longer waits for
+> a model download. To avoid the wake-up entirely, point a free uptime monitor
+> (UptimeRobot or cron-job.org) at `https://<your-api>/ping` every 10 minutes.
+> `/ping` touches no database, so Neon can still suspend when idle. One
+> always-on service uses ~744 of Render's 750 free instance-hours a month.
 
 Two pieces: the API goes to **Railway** (it needs a persistent disk and ~1.5 GB
 RAM for the embedding model), the frontend goes to **Vercel** (static files, free).

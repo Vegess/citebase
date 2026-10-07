@@ -20,6 +20,7 @@ def app_client(monkeypatch, tmp_path):
     # Run queued jobs right after each request instead of on a worker thread,
     # so a test sees a finished ingest as soon as the upload call returns.
     monkeypatch.setenv("WORKER_MODE", "inline")
+    monkeypatch.setenv("WARM_EMBEDDER", "false")
     monkeypatch.setenv("LOG_JSON", "false")
 
     for name in list(sys.modules):

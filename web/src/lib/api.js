@@ -63,6 +63,26 @@ async function request(path, { token, method = "GET", body, form, signal } = {})
   return res.json();
 }
 
+/* ---------------- server wake-up ---------------- */
+
+/**
+ * Free hosting puts the API to sleep when idle. Ping it as soon as the site
+ * opens so it is awake by the time someone signs in or asks. Resolves when
+ * the server answers; retries for up to ~3 minutes.
+ */
+export async function wakeServer({ attempts = 18, delayMs = 10_000 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetch(`${BASE}/ping`, { cache: "no-store" });
+      if (res.ok) return true;
+    } catch {
+      /* still asleep or starting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 /* ---------------- auth ---------------- */
 
 export const signup = (email, password, orgName) =>
