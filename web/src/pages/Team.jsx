@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
@@ -37,6 +38,54 @@ function describeDetails(details) {
   }
 }
 
+function DangerZone({ token, orgName, onDeleted }) {
+  const [confirmName, setConfirmName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleDelete(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.deleteWorkspace(token, confirmName);
+      onDeleted();
+    } catch (err) {
+      setError(err.detail || "Couldn't delete the workspace.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-12 rounded-lg border border-danger/40 bg-danger-soft/40 p-5">
+      <h2 className="font-display text-xl text-danger">Delete workspace</h2>
+      <p className="mt-1 text-sm text-ink-soft">
+        Permanently removes <span className="font-medium text-ink">{orgName}</span>: every member, document,
+        conversation and audit entry. This can't be undone.
+      </p>
+      <form onSubmit={handleDelete} className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <label className="flex-1">
+          <span className="sr-only">Type the workspace name to confirm</span>
+          <input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            placeholder={`Type "${orgName}" to confirm`}
+            className="w-full rounded-md border border-rule bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-danger focus:outline-none"
+          />
+        </label>
+        <Button type="submit" variant="danger" disabled={busy || confirmName !== orgName}>
+          {busy ? "Deleting…" : "Delete workspace"}
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function SectionTitle({ children, hint }) {
   return (
     <div className="mb-3">
@@ -47,7 +96,8 @@ function SectionTitle({ children, hint }) {
 }
 
 export default function TeamPage() {
-  const { token, user } = useAuth();
+  const { token, user, signOut } = useAuth();
+  const navigate = useNavigate();
   const notify = useToast();
   const [members, setMembers] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -283,6 +333,16 @@ export default function TeamPage() {
           </ol>
         )}
       </section>
+      {user?.role === "OWNER" && user.org_name && (
+        <DangerZone
+          token={token}
+          orgName={user.org_name}
+          onDeleted={() => {
+            signOut();
+            navigate("/", { replace: true });
+          }}
+        />
+      )}
     </main>
   );
 }

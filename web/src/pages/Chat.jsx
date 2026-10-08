@@ -459,6 +459,17 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAsk, token]);
 
+  // "New question" in the sidebar: start from a clean slate.
+  const freshRequest = location.state?.fresh;
+  useEffect(() => {
+    if (!freshRequest) return;
+    navigate(location.pathname, { replace: true, state: null });
+    if (askingRef.current) return;
+    clearConversationId();
+    setMessages([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freshRequest]);
+
   async function startNewConversation() {
     try {
       const created = await api.createConversation(token);
@@ -495,7 +506,7 @@ export default function ChatPage() {
   return (
     <>
       <DemoBanner />
-      <main className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-6xl flex-col px-5 py-5 lg:flex-row lg:gap-6">
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl lg:h-dvh flex-col px-5 py-5 lg:flex-row lg:gap-6">
       <aside className="mb-4 w-full shrink-0 rounded-lg border border-rule bg-surface/80 p-3 lg:mb-0 lg:w-72">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Conversations</h2>

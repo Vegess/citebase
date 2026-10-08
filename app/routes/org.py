@@ -10,12 +10,16 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_role, role_rank
-from app.models.models import AuditEvent, OrgInvite, User
+from app.models.models import (
+    AuditEvent, Conversation, ConversationMessage, Document, DocumentChunk, DocumentEvent, Org, OrgInvite,
+    QuestionUsage, User,
+)
 from app.models.schemas import AuditEventOut, InviteCreate, InviteCreated, InviteOut, MemberOut, RoleUpdate
 from app.routes.auth import hash_invite_token, normalize_email
 from app.services import audit
@@ -180,3 +184,37 @@ def list_audit(limit: int = 50, actor: User = Depends(require_admin), db: Sessio
         .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
         .limit(limit)
     ).all()
+
+
+# ---- Delete workspace ----
+
+class DeleteWorkspace(BaseModel):
+    confirm_name: str
+
+
+@router.delete("", status_code=204)
+def delete_workspace(body: DeleteWorkspace, actor: User = Depends(require_role("OWNER")),
+                     db: Session = Depends(get_db)):
+    """Permanently erase the workspace: documents, search data, chats, members,
+    invites, activity log and usage counters, in one transaction. The owner
+    must type the workspace name to confirm."""
+    org = db.scalar(select(Org).where(Org.id == actor.org_id).with_for_update())
+    if org is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if body.confirm_name.strip() != org.name:
+        raise HTTPException(status_code=400, detail="Type the workspace name exactly to confirm.")
+
+    org_id = org.id
+    user_ids = list(db.scalars(select(User.id).where(User.org_id == org_id)))
+    db.execute(delete(ConversationMessage).where(ConversationMessage.org_id == org_id))
+    db.execute(delete(Conversation).where(Conversation.org_id == org_id))
+    db.execute(delete(DocumentEvent).where(DocumentEvent.org_id == org_id))
+    db.execute(delete(DocumentChunk).where(DocumentChunk.org_id == org_id))
+    db.execute(delete(Document).where(Document.org_id == org_id))
+    db.execute(delete(OrgInvite).where(OrgInvite.org_id == org_id))
+    db.execute(delete(AuditEvent).where(AuditEvent.org_id == org_id))
+    db.execute(delete(QuestionUsage).where(or_(
+        QuestionUsage.scope == f"org:{org_id}", QuestionUsage.scope.in_(user_ids or [""]))))
+    db.execute(delete(User).where(User.org_id == org_id))
+    db.execute(delete(Org).where(Org.id == org_id))
+    db.commit()
