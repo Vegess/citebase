@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.services import jobs, lifecycle
 from app.services.generation import llm_configured
-from app.services.rag import chunk_text, embed_texts, store_chunks
+from app.services.rag import chunk_document, embed_texts, store_chunks
 
 SUMMARY_KIND = "summarize_document"  # handler lives in app/services/summaries.py
 
@@ -23,7 +23,7 @@ def _run(db: Session, payload: dict) -> None:
         return  # deleted before we started
     db.commit()
 
-    chunks = chunk_text(payload["text"])
+    chunks = chunk_document(payload["text"])
     if not chunks:
         lifecycle.transition(db, doc_id, lifecycle.FAILED, detail="no text after cleaning",
                              error="No readable text was found in this file.")

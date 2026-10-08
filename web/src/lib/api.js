@@ -151,8 +151,8 @@ export const getInsights = (token, days = 30) => request(`/insights?days=${days}
 
 /* ---------------- chat ---------------- */
 
-export const ask = (token, question, conversationId) =>
-  request("/chat/ask", { token, method: "POST", body: { question, conversation_id: conversationId } });
+export const ask = (token, question, conversationId, mode = "auto") =>
+  request("/chat/ask", { token, method: "POST", body: { question, conversation_id: conversationId, mode } });
 
 export const createConversation = (token) => request("/chat/conversations", { token, method: "POST" });
 
@@ -177,7 +177,11 @@ export const deleteConversation = (token, conversationId) =>
  * onToken(textChunk)  — called as text arrives
  * onCitations(list)   — called once sources are known
  */
-export async function askStream(token, question, { conversationId, onToken, onCitations, onMeta, signal } = {}) {
+export async function askStream(
+  token,
+  question,
+  { conversationId, mode = "auto", onToken, onCitations, onMeta, onStep, signal } = {},
+) {
   const res = await fetch(`${BASE}/chat/ask/stream`, {
     method: "POST",
     headers: {
@@ -185,7 +189,7 @@ export async function askStream(token, question, { conversationId, onToken, onCi
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },
-    body: JSON.stringify({ question, conversation_id: conversationId }),
+    body: JSON.stringify({ question, conversation_id: conversationId, mode }),
     signal,
   });
 
@@ -212,6 +216,7 @@ export async function askStream(token, question, { conversationId, onToken, onCi
     if (parsed.error) throw new ApiError(500, parsed.error);
     if (parsed.citations) onCitations?.(parsed.citations);
     if (parsed.message_id) onMeta?.({ id: parsed.message_id, answer_kind: parsed.answer_kind });
+    if (parsed.step) onStep?.(parsed.step);
 
     const text = parsed.text ?? parsed.delta ?? parsed.content;
     if (typeof text === "string" && text) onToken?.(text);

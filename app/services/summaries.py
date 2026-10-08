@@ -18,6 +18,7 @@ from app.services.generation import GroqRateLimitExceeded, generate_answer, is_f
 logger = logging.getLogger("app.services.summaries")
 
 KIND = "summarize_document"
+CONFLICTS_KIND = "check_conflicts"  # handler lives in app/services/conflicts.py
 BUDGET_CHARS = 8_000
 
 INSTRUCTION = (
@@ -59,6 +60,8 @@ def _run(db: Session, payload: dict) -> None:
     summary, questions = parse_summary(reply)
     doc.summary = summary
     doc.suggested_questions = json.dumps(questions)
+    # Next automation step, queued with the summary so it never runs without one.
+    jobs.enqueue(db, CONFLICTS_KIND, {"doc_id": doc.id})
     db.commit()
     logger.info("Summarised doc_id=%s questions=%s", doc.id, len(questions))
 

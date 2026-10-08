@@ -22,6 +22,13 @@ Upload your company documents, ask questions, get cited answers powered by your 
 - Naming a file in a question ("in the travel policy, …") searches only that file.
 - Sources are numbered; only sources the answer cites are shown, whatever bracket style the model uses (`[1]`, `【1】`, `[^1]`).
 
+## Advanced retrieval and agents
+
+- **Hybrid search.** Every query runs vector search (meaning) and keyword search (exact terms such as policy codes, amounts, roll numbers) and fuses the two rankings with reciprocal-rank fusion. Keyword search uses Postgres full-text search with a GIN index; SQLite falls back to BM25.
+- **Heading-aware chunks.** Passages keep the heading they sit under ("4. Notice period"), and tiny neighbouring sections are merged, so retrieved text carries its context.
+- **Research agent** (Deep research toggle, or automatic for "do these conflict / across all policies" questions). The model plans up to 4 steps — `search` (optionally inside one file), `read` a whole file, or `finish` — as JSON actions that work on every provider. Every step is shown live and saved with the answer. Only the caller's workspace is searchable; document text reaches the planner as `<source>` data, never as instructions; if the model fails or misbehaves the agent stops and the answer falls back to a normal search instead of answering from nothing.
+- **Conflict checker.** After a new document is summarised, a background job compares its passages with the most similar passages in the workspace's other files and flags direct contradictions (different numbers, deadlines, approvers) on the Documents page. Replies naming files that don't exist are discarded.
+
 ## Automation and insights
 
 - **On every upload**, once the document is indexed, a follow-up job writes a 2–3 sentence summary and three questions the document answers (only when an LLM key is set; a degraded fallback reply is never saved as a summary — the job retries). They show under the file name and as starter cards on the Ask page.
@@ -116,7 +123,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 97 tests should pass.
+All 117 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 

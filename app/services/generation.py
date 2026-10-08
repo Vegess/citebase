@@ -383,3 +383,50 @@ def stream_answer(question: str, chunks: list[dict], prior_turns: list[dict] | N
 
     logger.error("Unknown LLM provider configured: %s", active_provider)
     yield _fallback(question, chunks, "unknown_provider")
+
+
+class LLMUnavailable(Exception):
+    """No key configured, or the provider call failed. Agents treat this as
+    'stop and answer with what you have', never as a silent success."""
+
+
+def complete(system: str, messages: list[dict], max_tokens: int = 600) -> str:
+    """Plain chat completion with a caller-supplied system prompt (agents,
+    summaries). No fallback text: failures raise so callers can decide."""
+    if not llm_configured():
+        raise LLMUnavailable("no API key for the configured LLM provider")
+    provider = settings.llm_provider
+    client = get_client()
+    try:
+        if provider == "anthropic":
+            response = client.messages.create(
+                model=settings.claude_model, max_tokens=max_tokens, system=system, messages=messages,
+            )
+            return "".join(block.text for block in response.content if block.type == "text")
+        if provider == "gemini":
+            response = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=_build_gemini_contents(messages),
+                config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens),
+            )
+            return response.text or ""
+        if provider == "groq":
+            for attempt in range(2):
+                try:
+                    response = client.chat.completions.create(
+                        model=settings.groq_model,
+                        messages=[{"role": "system", "content": system}, *messages],
+                        max_tokens=max_tokens,
+                    )
+                    return response.choices[0].message.content or ""
+                except RateLimitError as error:
+                    _log_groq_rate_limit(error, attempt)
+                    if attempt == 1:
+                        raise GroqRateLimitExceeded from error
+                    time.sleep(2)
+    except (GroqRateLimitExceeded, LLMUnavailable):
+        raise
+    except Exception as exc:  # noqa: BLE001 — surfaced to the caller, logged here
+        logger.exception("LLM completion failed provider=%s", provider)
+        raise LLMUnavailable(str(exc)) from exc
+    raise LLMUnavailable(f"unsupported provider {provider}")

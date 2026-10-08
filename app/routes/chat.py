@@ -27,7 +27,8 @@ from app.models.schemas import (
     FeedbackRequest,
 )
 from app.services import metrics
-from app.services.answer_plan import plan_answer
+from app.services.answer_plan import AnswerPlan, plan_answer
+from app.services.research_agent import collect, run_research, should_research
 from app.services.citations import looks_like_abstention, normalize_markers, select_citations
 from app.services.generation import GroqRateLimitExceeded, generate_answer, is_fallback, stream_answer
 from app.services.quota import release_question, reserve_question
@@ -146,6 +147,7 @@ def get_conversation(conversation_id: str, user: User = Depends(get_current_user
                 ] if msg.citations else None,
                 answer_kind=msg.answer_kind,
                 feedback=msg.feedback,
+                research_steps=json.loads(msg.agent_trace) if msg.agent_trace else None,
                 created_at=msg.created_at,
             )
             for msg in conversation.messages
@@ -172,11 +174,16 @@ def ask(
     start = time.perf_counter()
     conversation = _ensure_conversation(body, user, db)
     history = _load_history(conversation, db)
-    plan = plan_answer(db, user.org_id, body.question, history)
+    reserve_question(db, user.id, org_id=user.org_id)
+    steps = None
+    if should_research(body.question, body.mode):
+        steps, research = collect(run_research(db, user.org_id, body.question, history))
+        plan = AnswerPlan("research", research.chunks, research.note, None, [])
+    else:
+        plan = plan_answer(db, user.org_id, body.question, history)
     chunks = plan.chunks
     metrics.record_chat(len(chunks))
 
-    reserve_question(db, user.id, org_id=user.org_id)
     try:
         answer = normalize_markers(generate_answer(
             body.question, chunks, prior_turns=history, note=plan.note, context_limit=plan.context_limit,
@@ -216,6 +223,7 @@ def ask(
         citations=json.dumps(used),
         answer_kind=kind,
         answer_mode=plan.mode,
+        agent_trace=json.dumps(steps) if steps else None,
     )
     db.add(assistant)
     conversation.updated_at = datetime.now(timezone.utc)
@@ -231,7 +239,8 @@ def ask(
         len(chunks),
         plan.mode,
     )
-    return AskResponse(answer=answer, citations=citations, message_id=assistant.id, answer_kind=kind)
+    return AskResponse(answer=answer, citations=citations, message_id=assistant.id, answer_kind=kind,
+                       research_steps=steps)
 
 
 @router.post("/ask/stream")
@@ -246,9 +255,8 @@ def ask_stream(
     org_id = user.org_id
     conversation = _ensure_conversation(body, user, db)
     history = _load_history(conversation, db)
-    plan = plan_answer(db, org_id, body.question, history)
-    chunks = plan.chunks
-    metrics.record_chat(len(chunks))
+    research = should_research(body.question, body.mode)
+    plan = None if research else plan_answer(db, org_id, body.question, history)
     reserve_question(db, user_id, org_id=org_id)
 
     if conversation is None:
@@ -259,21 +267,29 @@ def ask_stream(
     _name_if_untitled(conversation, body.question)
     db.commit()
     conversation_id = conversation.id
-    answer_stream = stream_answer(
-        body.question, chunks, prior_turns=history, note=plan.note, context_limit=plan.context_limit,
-    )
-    try:
-        first_chunk = next(answer_stream)
-    except GroqRateLimitExceeded:
-        release_question(db, user_id, org_id=org_id)
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="The demo is busy right now. Please try again in a moment.",
-            headers={"Retry-After": "2"},
+
+    first_chunk = None
+    answer_stream = None
+    if plan is not None:
+        # Start the model before the response begins, so a rate limit can
+        # still be returned as a proper HTTP 429.
+        metrics.record_chat(len(plan.chunks))
+        answer_stream = stream_answer(
+            body.question, plan.chunks, prior_turns=history, note=plan.note, context_limit=plan.context_limit,
         )
+        try:
+            first_chunk = next(answer_stream)
+        except GroqRateLimitExceeded:
+            release_question(db, user_id, org_id=org_id)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="The demo is busy right now. Please try again in a moment.",
+                headers={"Retry-After": "2"},
+            )
 
     def event_generator():
+        nonlocal plan
         start = time.perf_counter()
         full_answer = ""
         local_db = SessionLocal()
@@ -290,10 +306,36 @@ def ask_stream(
             )
             local_db.flush()
 
-            for chunk in chain([first_chunk], answer_stream):
-                full_answer += chunk
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            steps = None
+            stream = None
+            if plan is None:
+                # Research mode: show each step as it happens, then answer.
+                agent = run_research(local_db, org_id, body.question, history)
+                steps = []
+                while True:
+                    try:
+                        step = next(agent)
+                    except StopIteration as done:
+                        result = done.value
+                        break
+                    steps.append(step)
+                    yield f"data: {json.dumps({'step': step})}\n\n"
+                plan = AnswerPlan("research", result.chunks, result.note, None, [])
+                metrics.record_chat(len(plan.chunks))
+                stream = stream_answer(body.question, plan.chunks, prior_turns=history, note=plan.note)
+            else:
+                stream = chain([first_chunk], answer_stream)
 
+            try:
+                for chunk in stream:
+                    full_answer += chunk
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+            except GroqRateLimitExceeded:
+                notice = "\n\n_The AI service is busy right now. Please ask again in a moment._"
+                full_answer += notice
+                yield f"data: {json.dumps({'text': notice})}\n\n"
+
+            chunks = plan.chunks
             full_answer = normalize_markers(full_answer)
             citations = select_citations(full_answer, chunks)
             kind = classify_answer(full_answer, chunks, citations)
@@ -306,6 +348,7 @@ def ask_stream(
                 citations=json.dumps(citations),
                 answer_kind=kind,
                 answer_mode=plan.mode,
+                agent_trace=json.dumps(steps) if steps else None,
             )
             local_db.add(assistant)
             local_db.commit()
@@ -320,7 +363,7 @@ def ask_stream(
                 user_id,
                 org_id,
                 latency_ms,
-                len(chunks),
+                len(plan.chunks),
             )
         finally:
             local_db.close()

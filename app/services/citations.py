@@ -26,7 +26,20 @@ def normalize_markers(answer: str) -> str:
         numbers = re.split(r"\s*[,，、]\s*", match.group(1).strip())
         return "[" + ", ".join(numbers) + "]"
 
-    return _VARIANT.sub(canonical, answer or "")
+    return _merge_runs(_VARIANT.sub(canonical, answer or ""))
+
+
+# Two or more canonical markers in a row: "[3][3]", "[1] [2]", "[3], [4]".
+_RUN = re.compile(r"\[\d{1,2}(?:, \d{1,2})*\](?:(?:\s*,\s*|\s*)\[\d{1,2}(?:, \d{1,2})*\])+(?!\()")
+
+
+def _merge_runs(text: str) -> str:
+    """Collapse adjacent markers into one, without duplicates: [3][3] -> [3], [1][2] -> [1, 2]."""
+    def merge(match: re.Match) -> str:
+        numbers = sorted({int(n) for n in re.findall(r"\d{1,2}", match.group(0))})
+        return "[" + ", ".join(str(n) for n in numbers) + "]"
+
+    return _RUN.sub(merge, text)
 
 # A reply that says the answer is not in the documents must not carry sources.
 _ABSTAIN = re.compile(

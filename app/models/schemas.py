@@ -32,10 +32,11 @@ class DocumentOut(BaseModel):
     char_count: int | None = None
     summary: str | None = None
     suggested_questions: list[str] | None = None
+    conflicts: list[dict] | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
-    @field_validator("suggested_questions", mode="before")
+    @field_validator("suggested_questions", "conflicts", mode="before")
     @classmethod
     def _parse_questions(cls, value):
         return json.loads(value) if isinstance(value, str) else value
@@ -59,6 +60,9 @@ class DocumentEventOut(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
+    # auto: the server decides; research: force the multi-step research agent;
+    # fast: never use it.
+    mode: Literal["auto", "research", "fast"] = "auto"
 
 
 class Citation(BaseModel):
@@ -74,6 +78,7 @@ class AskResponse(BaseModel):
     citations: list[Citation]
     message_id: str | None = None
     answer_kind: str | None = None
+    research_steps: list[dict] | None = None
 
 
 class FeedbackRequest(BaseModel):
@@ -103,6 +108,7 @@ class ConversationMessageOut(BaseModel):
     citations: list[Citation] | None = None
     answer_kind: str | None = None
     feedback: int | None = None
+    research_steps: list[dict] | None = None
     created_at: datetime
 
     class Config:

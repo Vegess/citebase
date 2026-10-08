@@ -39,7 +39,8 @@ export default function DocumentsPage() {
     // Also re-check freshly ready documents for a minute or two: their summary
     // is written by a follow-up job shortly after they become ready.
     const summaryPending = (d) =>
-      d.status === "ready" && !d.summary && Date.now() - new Date(d.created_at).getTime() < 120_000;
+      d.status === "ready" && (!d.summary || d.conflicts == null) &&
+      Date.now() - new Date(d.created_at).getTime() < 180_000;
     const pending = docs.filter((d) => IN_PROGRESS.has(d.status) || summaryPending(d));
     if (pending.length === 0) return;
 
@@ -183,6 +184,21 @@ export default function DocumentsPage() {
                     <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-ink-soft" title={doc.summary}>
                       {doc.summary}
                     </p>
+                  )}
+                  {doc.conflicts?.length > 0 && (
+                    <div className="mt-2 rounded-md border border-warn/25 bg-warn-soft px-2.5 py-1.5 text-xs text-warn">
+                      <p className="font-medium">
+                        ⚠ May contradict {doc.conflicts.length === 1 ? "another document" : `${doc.conflicts.length} passages in other documents`}
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        {doc.conflicts.map((c, i) => (
+                          <li key={i}>
+                            <span className="font-medium">{c.topic}:</span> this file says “{c.this_says}”, but{" "}
+                            <span className="font-mono">{c.other_file}</span> says “{c.other_says}”.
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                   {doc.error && doc.status !== "ready" && (
                     <p className={`mt-1 text-xs ${IN_PROGRESS.has(doc.status) ? "text-muted" : "text-danger"}`}>
