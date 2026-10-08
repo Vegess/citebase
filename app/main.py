@@ -31,7 +31,7 @@ from app.core.logging_setup import configure_logging, recent_logs
 from app.models.models import Document, DocumentChunk, Job
 from app.routes import auth, chat, documents, insights, org, users
 from app.routes.chat import limiter
-from app.services import ingestion, summaries  # noqa: F401 — register job handlers
+from app.services import conflicts, ingestion, summaries  # noqa: F401 — register job handlers
 from app.services import jobs, metrics, rag
 from app.services.quota import get_usage
 

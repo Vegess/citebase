@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # ~60 pages of dense text. Longer files are cut here and flagged `truncated`.
     max_document_chars: int = 200_000
     retrieval_top_k: int = 6
+    # Vector + keyword search fused with reciprocal-rank fusion.
+    hybrid_search: bool = True
     max_prior_turns: int = 2
     max_context_chars: int = 8_000
     # Budget for whole-document tasks (summarise / review / compare). ~4k tokens,

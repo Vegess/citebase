@@ -101,6 +101,9 @@ class Document(Base):
     # Written by the summarize_document job when an LLM key is configured.
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggested_questions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of strings
+    # Written by the check_conflicts job: JSON list of {other_filename, topic, this_says, other_says}.
+    conflicts: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conflicts_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -191,6 +194,7 @@ class ConversationMessage(Base):
     answer_kind: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     answer_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)  # question | document
     feedback: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 helpful, -1 not helpful
+    agent_trace: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON steps of the research agent
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

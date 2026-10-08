@@ -26,6 +26,7 @@ def seed_demo_org(db, org_name: str = "Northwind Freight (demo)", email: str = "
     queue and lifecycle. Returns (org_id, user_id)."""
     from app.models.models import Document, Org, User
     from app.services import ingestion, jobs, lifecycle
+    from app.services import conflicts, summaries  # noqa: F401 — register job handlers, as app.main does
 
     org = Org(name=org_name)
     db.add(org)
@@ -84,7 +85,7 @@ class EvalResult:
         return "\n".join(lines)
 
 
-def run(db, org_id: str, *, k: int = 6, with_answers: bool = False) -> EvalResult:
+def run(db, org_id: str, *, k: int = 6, with_answers: bool = False, hybrid: bool | None = None) -> EvalResult:
     from app.services import rag
     from app.services.answer_plan import plan_answer
     from app.services.citations import looks_like_abstention, normalize_markers, select_citations
@@ -103,7 +104,7 @@ def run(db, org_id: str, *, k: int = 6, with_answers: bool = False) -> EvalResul
             result.failures.append(f"{q['id']} routing: got {plan.mode} {plan.target_docs}")
 
         if q["type"] == "answerable":
-            hits = rag.retrieve_chunks(org_id, q["question"], top_k=k, db=db)
+            hits = rag.retrieve_chunks(org_id, q["question"], top_k=k, db=db, hybrid=hybrid)
             names = [h["filename"] for h in hits]
             result.retrieval_total += 1
             if q["expect_doc"] in names:

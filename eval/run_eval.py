@@ -43,8 +43,12 @@ def main() -> int:
     with SessionLocal() as db:
         org_id, _ = seed_demo_org(db)
         result = run(db, org_id, k=args.k, with_answers=args.answers)
+        vector_only = run(db, org_id, k=args.k, hybrid=False)
 
-    report = "## DocuMind eval — Northwind Freight demo\n\n" + result.table()
+    report = (
+        "## DocuMind eval — Northwind Freight demo\n\n" + result.table()
+        + "\n\n### Vector-only search (for comparison)\n\n" + vector_only.table().split("\n\nMisses")[0]
+    )
     print(report)
     summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:

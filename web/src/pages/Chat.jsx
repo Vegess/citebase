@@ -82,11 +82,18 @@ const markdownComponents = {
 const CITATION_VARIANT =
   /[\[【［〔]\s*(?:\^|source\s*)?(\d{1,2}(?:\s*[,，、]\s*\d{1,2})*)(?:\s*†[^\]】］〕]*)?\s*[\]】］〕]/gi;
 
+// Adjacent markers ("[3][3]", "[1] [2]") collapse into one, as on the server.
+const MARKER_RUN = /\[\d{1,2}(?:, \d{1,2})*\](?:\s*,?\s*\[\d{1,2}(?:, \d{1,2})*\])+(?!\()/g;
+
 function normalizeMarkers(text) {
-  return (text || "").replace(
+  const canonical = (text || "").replace(
     CITATION_VARIANT,
     (_, numbers) => `[${numbers.split(/\s*[,，、]\s*/).join(", ")}]`,
   );
+  return canonical.replace(MARKER_RUN, (run) => {
+    const numbers = [...new Set(run.match(/\d{1,2}/g).map(Number))].sort((a, b) => a - b);
+    return `[${numbers.join(", ")}]`;
+  });
 }
 
 function Answer({ content }) {
@@ -94,6 +101,50 @@ function Answer({ content }) {
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
       {normalizeMarkers(content)}
     </ReactMarkdown>
+  );
+}
+
+function describeStep(step) {
+  if (step.action === "search") {
+    const where = step.filename ? ` in ${step.filename}` : "";
+    const files = step.files?.length ? ` → ${step.files.join(", ")}` : "";
+    return `Searched “${step.query}”${where}${files}`;
+  }
+  if (step.action === "read") return `Read ${step.filename}`;
+  return "Had enough to answer";
+}
+
+function ResearchSteps({ steps, live }) {
+  const [open, setOpen] = useState(false);
+  if (!steps?.length) return null;
+  const show = live || open;
+  return (
+    <div className="mb-3 rounded-md border border-rule bg-surface px-3 py-2 text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left font-medium text-ink-soft"
+        aria-expanded={show}
+      >
+        <span>
+          {live ? "Researching across your documents…" : `Researched in ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+        </span>
+        {!live && <span className="text-muted">{open ? "Hide" : "Show"}</span>}
+      </button>
+      {show && (
+        <ol className="mt-2 space-y-1.5">
+          {steps.map((step) => (
+            <li key={step.step} className="flex gap-2">
+              <span className="font-mono text-muted">{step.step}.</span>
+              <span className="text-ink">
+                {describeStep(step)}
+                {step.thought && <span className="block text-muted">{step.thought}</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 
@@ -134,6 +185,7 @@ function Message({ message, onRate }) {
 
   return (
     <div className="ruled-margin">
+      <ResearchSteps steps={message.steps} live={message.streaming && !message.content} />
       {message.answer_kind === "fallback" && (
         <p className="mb-2 inline-block rounded-sm bg-warn-soft px-2 py-0.5 text-xs text-warn">
           The AI model is unavailable right now — this is the closest matching passage, not a written answer.
@@ -178,6 +230,7 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [slowRequest, setSlowRequest] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [deepResearch, setDeepResearch] = useState(false);
   // True while a question is in flight: the conversation loader must not
   // replace the optimistic messages with a half-saved server copy.
   const askingRef = useRef(false);
@@ -219,6 +272,7 @@ export default function ChatPage() {
             citations: m.citations || [],
             answer_kind: m.answer_kind,
             feedback: m.feedback,
+            steps: m.research_steps || null,
           })),
         );
       } catch (err) {
@@ -307,8 +361,14 @@ export default function ChatPage() {
     let receivedAny = false;
     let receivedText = "";
     try {
+      const steps = [];
       await api.askStream(token, asked, {
         conversationId: activeConversationId,
+        mode: deepResearch ? "research" : "auto",
+        onStep: (step) => {
+          steps.push(step);
+          updateLast({ steps: [...steps] });
+        },
         onToken: (chunk) => {
           receivedAny = true;
           receivedText += chunk;
@@ -341,12 +401,13 @@ export default function ChatPage() {
 
       // The stream never reached the server (network error): safe to retry once.
       try {
-        const res = await api.ask(token, asked, activeConversationId);
+        const res = await api.ask(token, asked, activeConversationId, deepResearch ? "research" : "auto");
         updateLast({
           content: res.answer,
           citations: res.citations,
           id: res.message_id,
           answer_kind: res.answer_kind,
+          steps: res.research_steps || null,
           streaming: false,
         });
       } catch (fallbackErr) {
@@ -497,9 +558,21 @@ export default function ChatPage() {
               {busy ? "Thinking…" : "Ask"}
             </Button>
           </div>
-          <p className="mt-2 font-mono text-[11px] text-muted">
-            Enter to send · Shift+Enter for a new line
-          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="font-mono text-[11px] text-muted">Enter to send · Shift+Enter for a new line</p>
+            <label
+              className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft"
+              title="Plans several searches across your documents before answering. Slower, better for comparisons and 'do these conflict?' questions."
+            >
+              <input
+                type="checkbox"
+                checked={deepResearch}
+                onChange={(e) => setDeepResearch(e.target.checked)}
+                className="accent-[var(--color-signal)]"
+              />
+              Deep research
+            </label>
+          </div>
         </form>
       </section>
     </main>
