@@ -26,6 +26,7 @@ def seed_demo_org(db, org_name: str = "Northwind Freight (demo)", email: str = "
     queue and lifecycle. Returns (org_id, user_id)."""
     from app.models.models import Document, Org, User
     from app.services import ingestion, jobs, lifecycle
+    from app.services import conflicts, summaries  # noqa: F401 — register job handlers, as app.main does
 
     org = Org(name=org_name)
     db.add(org)
