@@ -85,6 +85,14 @@ export async function wakeServer({ attempts = 18, delayMs = 10_000 } = {}) {
 
 /* ---------------- auth ---------------- */
 
+export const getProviders = () => request("/auth/providers");
+
+/** Full-page navigation target that starts Google/GitHub sign-in. */
+export const oauthStartUrl = (provider) => `${BASE}/auth/oauth/${provider}/start`;
+
+export const deleteWorkspace = (token, confirmName) =>
+  request("/org", { token, method: "DELETE", body: { confirm_name: confirmName } });
+
 export const signup = (email, password, orgName) =>
   request("/auth/signup", {
     method: "POST",

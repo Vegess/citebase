@@ -112,6 +112,36 @@ must redeploy, not just restart.
 
 ---
 
+## Part 2b — Google and GitHub sign-in (optional)
+
+The buttons appear for every visitor; a provider only works once its keys are
+set on the API. Without keys, users see "isn't set up on this server yet".
+
+**GitHub** — github.com → Settings → Developer settings → OAuth Apps → New OAuth App
+- Homepage URL: your frontend, e.g. `https://documind-beta-lac.vercel.app`
+- Authorization callback URL: `https://<api-host>/auth/oauth/github/callback`
+- Copy the Client ID, then "Generate a new client secret".
+
+**Google** — console.cloud.google.com → APIs & Services
+1. OAuth consent screen: External, app name DocuMind, your support email,
+   scopes `openid`, `email`, `profile`. Publish the app (scopes are
+   non-sensitive, so no review is needed).
+2. Credentials → Create credentials → OAuth client ID → Web application.
+   Authorized redirect URI: `https://<api-host>/auth/oauth/google/callback`
+
+**API environment variables**
+
+| Variable | Value |
+|---|---|
+| `API_PUBLIC_URL` | `https://<api-host>` (no trailing slash) |
+| `FRONTEND_URL` | `https://<frontend-host>` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from Google |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | from GitHub |
+
+Check: `GET /auth/providers` should list both.
+
+---
+
 ## Part 3 — Harden it
 
 - [ ] Disable or protect `/docs` in production — add a `DEBUG` env flag and pass

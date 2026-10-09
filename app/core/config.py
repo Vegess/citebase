@@ -57,6 +57,16 @@ class Settings(BaseSettings):
     # Load the embedding model in the background at startup (off in tests).
     warm_embedder: bool = True
 
+    # Sign in with Google / GitHub. A provider is enabled only when both its
+    # client id and secret are set. API_PUBLIC_URL is this API's public base
+    # URL (the OAuth callback lives there); FRONTEND_URL is where users land.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    api_public_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:5173"
+
     # JSON log lines (set LOG_JSON=false for plain text while developing).
     log_json: bool = True
 

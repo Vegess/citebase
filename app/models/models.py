@@ -45,6 +45,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="MEMBER", server_default="MEMBER")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Set when the account was created through a provider that verified the
+    # email (Google/GitHub). Only such accounts can be signed into that way.
+    oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     org: Mapped[Org] = relationship(back_populates="users")
 

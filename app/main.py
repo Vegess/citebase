@@ -29,7 +29,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.logging_setup import configure_logging, recent_logs
 from app.models.models import Document, DocumentChunk, Job
-from app.routes import auth, chat, documents, insights, org, users
+from app.routes import auth, chat, documents, insights, oauth, org, users
 from app.routes.chat import limiter
 from app.services import conflicts, ingestion, summaries  # noqa: F401 — register job handlers
 from app.services import jobs, metrics, rag
@@ -134,6 +134,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(oauth.router)
 # Before documents: /documents/suggestions must not be captured by /documents/{doc_id}.
 app.include_router(insights.router)
 app.include_router(documents.router)

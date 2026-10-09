@@ -50,14 +50,23 @@ export function AuthProvider({ children }) {
     [loadUser],
   );
 
+  /** Used by the Google/GitHub callback page, which receives a token directly. */
+  const signInWithToken = useCallback(
+    async (accessToken) => {
+      setToken(accessToken);
+      await loadUser(accessToken);
+    },
+    [loadUser],
+  );
+
   const signOut = useCallback(() => {
     setToken(null);
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, signIn, register, joinWithInvite, signOut, isAuthed: Boolean(token) }),
-    [token, user, signIn, register, joinWithInvite, signOut],
+    () => ({ token, user, signIn, register, joinWithInvite, signInWithToken, signOut, isAuthed: Boolean(token) }),
+    [token, user, signIn, register, joinWithInvite, signInWithToken, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
