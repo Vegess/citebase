@@ -3,10 +3,31 @@ import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import { Icon } from "./icons";
 
+/** The app mark: a document with a [1] citation badge. Same art as /favicon.svg. */
+export function LogoMark({ className = "h-[1.2em] w-[1.2em]" }) {
+  return (
+    <svg viewBox="0 0 512 512" className={`shrink-0 ${className}`} aria-hidden="true">
+      <rect width="512" height="512" rx="112" fill="#2d5bff" />
+      <path d="M150 104h150l70 70v234a24 24 0 0 1-24 24H150a24 24 0 0 1-24-24V128a24 24 0 0 1 24-24z" fill="#fff" />
+      <path d="M300 104v54a16 16 0 0 0 16 16h54z" fill="#c9d6ff" />
+      <rect x="166" y="210" width="150" height="20" rx="10" fill="#2d5bff" opacity=".35" />
+      <rect x="166" y="254" width="120" height="20" rx="10" fill="#2d5bff" opacity=".35" />
+      <circle cx="330" cy="352" r="72" fill="#0f8a7a" stroke="#2d5bff" strokeWidth="14" />
+      <path d="M296 322h-12v60h12M364 322h12v60h-12" fill="none" stroke="#fff" strokeWidth="12" strokeLinejoin="round" />
+      <path d="M320 334l12-8v56" fill="none" stroke="#fff" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function Wordmark({ className = "", light = false }) {
   return (
-    <span className={`font-display text-xl tracking-tight ${light ? "text-paper" : "text-ink"} ${className}`}>
-      Docu<span className={light ? "text-[#7fd6c8]" : "text-source"}>Mind</span>
+    <span
+      className={`inline-flex items-center gap-2 font-display text-xl tracking-tight ${light ? "text-paper" : "text-ink"} ${className}`}
+    >
+      <LogoMark />
+      <span>
+        Docu<span className={light ? "text-[#7fd6c8]" : "text-source"}>Mind</span>
+      </span>
     </span>
   );
 }
