@@ -71,14 +71,32 @@ def test_first_sign_in_creates_a_new_workspace(oauth, app_client):
     assert app_client.get("/me", headers={"Authorization": f"Bearer {again['token']}"}).json()["id"] == me["id"]
 
 
-def test_existing_email_account_is_reused(oauth, app_client):
+def test_password_account_cannot_be_claimed_through_google(oauth, app_client):
+    """Account pre-hijacking: someone registers the victim's email with a
+    password and invites a second account of their own. Google sign-in must
+    not log the real owner into that workspace."""
     _, identity = oauth
-    app_client.post("/auth/signup", json={"email": "owner@acme.com", "password": PASSWORD, "org_name": "Acme"})
-    identity["email"] = "OWNER@acme.com"
+    attacker = app_client.post("/auth/signup", json={"email": "victim@corp.com", "password": PASSWORD,
+                                                     "org_name": "Trap"}).json()["access_token"]
+    app_client.post("/org/invites", headers={"Authorization": f"Bearer {attacker}"},
+                    json={"email": "spy@evil.com", "role": "ADMIN"})
+    identity["email"] = "Victim@Corp.com"
     state, nonce = _start(app_client)
-    token = _finish(app_client, state, nonce)["token"]
-    me = app_client.get("/me", headers={"Authorization": f"Bearer {token}"}).json()
-    assert me["org_name"] == "Acme" and me["role"] == "OWNER"
+    assert _finish(app_client, state, nonce) == {"error": "use_password"}
+
+    # The password still works for whoever set it; nothing new was created.
+    assert app_client.post("/auth/login", data={"username": "victim@corp.com", "password": PASSWORD}).status_code == 200
+
+
+def test_google_and_github_share_a_provider_created_account(oauth, app_client):
+    oauth_module, _ = oauth
+    state, nonce = _start(app_client)
+    first = _finish(app_client, state, nonce)["token"]
+    me = app_client.get("/me", headers={"Authorization": f"Bearer {first}"}).json()
+    import app.core.database as database
+    with database.SessionLocal() as db:
+        user = oauth_module.sign_in_with_email(db, "github", "new.person@gmail.com", None)
+        assert user.id == me["id"]
 
 
 def test_open_invite_is_honoured_on_first_sign_in(oauth, app_client):

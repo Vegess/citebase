@@ -51,7 +51,7 @@ CI runs the same eval with a deterministic offline embedder as a gate (`tests/te
 
 | Concern | Implementation |
 |---|---|
-| **Authentication** | Email + password (bcrypt) or Google / GitHub sign-in (OAuth 2.0 authorization-code flow). The OAuth `state` is a signed, 10-minute JWT bound to an httpOnly nonce cookie, so a forged or replayed callback is rejected. Only provider-verified emails are accepted, and a new social sign-in always gets its own workspace (or the invite waiting for that email) — never someone else's by name |
+| **Authentication** | Email + password (bcrypt) or Google / GitHub sign-in (OAuth 2.0 authorization-code flow). The OAuth `state` is a signed, 10-minute JWT bound to an httpOnly nonce cookie, so a forged or replayed callback is rejected. Only provider-verified emails are accepted. Social sign-in never logs into a password account (sign-up doesn't verify email, so that would allow account pre-hijacking), and a new social sign-in always gets its own workspace (or the invite waiting for that email) — never someone else's by name |
 | **Data deletion** | The workspace owner can delete the whole workspace (typed-name confirmation); members, documents, chunks, conversations, invites and audit entries go in one transaction |
 | **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers. Signup always creates a new org; existing orgs are joined only by single-use invite |
 | **Roles (RBAC)** | OWNER / ADMIN / MEMBER / VIEWER, read from the database on every request. Viewers ask only; members upload; admins manage people and any document |

@@ -148,6 +148,10 @@ def fetch_verified_email(provider: str, access_token: str) -> tuple[str, str | N
     return primary["email"], profile.get("name") or profile.get("login")
 
 
+class PasswordAccountExists(Exception):
+    """The email belongs to an account that signs in with a password."""
+
+
 def sign_in_with_email(db: Session, provider: str, email: str, name: str | None) -> User:
     """Find or create the account for a provider-verified email."""
     email = email.strip().lower()
@@ -155,6 +159,13 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
     if user is not None:
         if not user.is_active:
             raise PermissionError("This account has been removed from its workspace.")
+        if user.oauth_provider is None:
+            # A password account. Email sign-up doesn't prove the address, so
+            # anyone could have created it (and invited a second account of
+            # their own). Logging the real owner into it would hand that
+            # person their documents ("account pre-hijacking"). Make them use
+            # the password instead.
+            raise PasswordAccountExists(email)
         return user
 
     now = datetime.now(timezone.utc)
@@ -169,7 +180,8 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
     unusable = hash_password(secrets.token_urlsafe(32))
     if invite is not None:
         invite.accepted_at = now
-        user = User(email=email, hashed_password=unusable, org_id=invite.org_id, role=invite.role)
+        user = User(email=email, hashed_password=unusable, org_id=invite.org_id, role=invite.role,
+                    oauth_provider=provider)
         db.add(user)
         db.flush()
         audit.record(db, org_id=invite.org_id, actor_id=user.id, action="invite.accepted",
@@ -179,7 +191,7 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
         org = Org(name=org_name[:120])
         db.add(org)
         db.flush()
-        user = User(email=email, hashed_password=unusable, org_id=org.id, role="OWNER")
+        user = User(email=email, hashed_password=unusable, org_id=org.id, role="OWNER", oauth_provider=provider)
         db.add(user)
         db.flush()
         audit.record(db, org_id=org.id, actor_id=user.id, action="org.created", target_type="org",
@@ -214,6 +226,8 @@ def oauth_callback(provider: str, request: Request, code: str | None = None, sta
         user = sign_in_with_email(db, provider, email, name)
     except PermissionError:
         return _fail("account_removed")
+    except PasswordAccountExists:
+        return _fail("use_password")
 
     response = RedirectResponse(
         _frontend("/auth/callback#" + urlencode({"token": create_access_token(user.id)})), status_code=302)

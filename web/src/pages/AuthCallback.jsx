@@ -10,6 +10,8 @@ const ERRORS = {
   no_verified_email: "Your account needs a verified email address to sign in.",
   provider_error: "The sign-in provider didn't respond. Please try again.",
   provider_disabled: "That sign-in option isn't set up on this server.",
+  use_password:
+    "This email already has a DocuMind password. Sign in with your email and password instead.",
   account_removed: "This account was removed from its workspace. Ask an admin for a new invite.",
 };
 
