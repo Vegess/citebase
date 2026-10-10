@@ -79,7 +79,7 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
       if (mode === "signin") await signIn(email, password);
       else await register(email, password, orgName);
       onDone?.();
-      navigate(mode === "signin" ? "/chat" : "/documents", { replace: true });
+      navigate("/home", { replace: true });
     } catch (err) {
       setError(
         err.detail ||
@@ -99,7 +99,7 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
   return (
     <div>
       <h2 className="font-display text-2xl text-ink">
-        {mode === "signin" ? "Sign in to DocuMind" : "Create your workspace"}
+        {mode === "signin" ? "Sign in to Citebase" : "Create your workspace"}
       </h2>
       <p className="mt-1 text-sm text-muted">
         {mode === "signin"
@@ -151,6 +151,13 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
             />
           </>
         )}
+        {step === "details" && mode === "signin" && (
+          <p className="-mt-2 text-right text-xs">
+            <a href="/forgot-password" className="text-signal">
+              Forgot password?
+            </a>
+          </p>
+        )}
         {error && (
           <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
             {error}
@@ -164,7 +171,7 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
       <p className="mt-5 text-center text-sm text-muted">
         {mode === "signin" ? (
           <>
-            New to DocuMind?{" "}
+            New to Citebase?{" "}
             <button type="button" className="text-signal" onClick={() => switchMode("signup")}>
               Create a workspace
             </button>

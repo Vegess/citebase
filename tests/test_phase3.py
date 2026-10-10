@@ -62,5 +62,5 @@ def test_chat_streaming_endpoint_returns_sse(app_client):
         assert b'data: {"text": "stub"}' in body
         assert b'data: {"text": "bed"}' in body
         assert b'data: {"text": " answer"}' in body
-        assert b'data: {"citations": [{"filename": "doc.txt", "chunk_index": 0, "n": 1}]}' in body
+        assert b'data: {"citations": [{"filename": "doc.txt", "chunk_index": 0, "n": 1, "doc_id": "' in body
         assert b"data: [DONE]" in body

@@ -29,13 +29,13 @@ def _start(client):
     resp = client.get("/auth/oauth/google/start", follow_redirects=False)
     assert resp.status_code == 302
     query = parse_qs(urlparse(resp.headers["location"]).query)
-    return query["state"][0], resp.cookies.get("documind_oauth_nonce")
+    return query["state"][0], resp.cookies.get("citebase_oauth_nonce")
 
 
 def _finish(client, state, nonce, code="abc"):
     client.cookies.clear()
     if nonce:
-        client.cookies.set("documind_oauth_nonce", nonce, path="/auth/oauth")
+        client.cookies.set("citebase_oauth_nonce", nonce, path="/auth/oauth")
     resp = client.get(f"/auth/oauth/google/callback?code={code}&state={state}", follow_redirects=False)
     assert resp.status_code == 302
     fragment = parse_qs(urlparse(resp.headers["location"]).fragment)

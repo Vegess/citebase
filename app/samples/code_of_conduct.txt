@@ -1,0 +1,18 @@
+Northwind Freight Pvt. Ltd. — Code of Conduct
+
+Fictional demo data for DocuMind.
+
+1. Gifts and hospitality
+Employees may accept gifts from customers or suppliers worth up to Rs 2,000 per occasion. Anything above that must be declined or declared to Compliance within 7 days. Cash or cash-equivalent gifts are never accepted.
+
+2. Conflicts of interest
+Declare any personal or financial interest in a supplier, customer or competitor to Compliance before taking part in any related decision. Declarations are reviewed every year.
+
+3. Respect at work
+Harassment, discrimination and bullying are not tolerated. Complaints of sexual harassment are handled by the Internal Committee under the POSH Act, which completes its inquiry within 90 days.
+
+4. Speaking up
+Concerns can be reported to the ethics hotline at ethics@northwind.example, which accepts anonymous reports. Employees who raise concerns in good faith are protected from retaliation under the whistleblower policy.
+
+5. Social media
+Employees must not share confidential company or customer information on social media, and must not speak on behalf of the company without approval from Communications.

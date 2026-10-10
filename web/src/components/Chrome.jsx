@@ -26,24 +26,45 @@ export function Wordmark({ className = "", light = false }) {
     >
       <LogoMark />
       <span>
-        Docu<span className={light ? "text-[#7fd6c8]" : "text-source"}>Mind</span>
+        Cite<span className={light ? "text-[#7fd6c8]" : "text-source"}>base</span>
       </span>
     </span>
   );
 }
 
 export function ProtectedRoute({ children }) {
-  const { isAuthed } = useAuth();
+  const { isAuthed, restoring } = useAuth();
   const location = useLocation();
+  if (!isAuthed && restoring) return <FullPageNote>Signing you back in…</FullPageNote>;
   if (!isAuthed) return <Navigate to="/login" state={{ from: location }} replace />;
   return children;
 }
 
+/** Sends signed-in people past the sign-in pages. */
+export function GuestOnly({ children }) {
+  const { isAuthed, restoring } = useAuth();
+  const location = useLocation();
+  if (isAuthed) return <Navigate to={location.state?.from?.pathname || "/home"} replace />;
+  if (restoring) return <FullPageNote>Signing you back in…</FullPageNote>;
+  return children;
+}
+
+export function FullPageNote({ children }) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-paper px-5 text-center">
+      <Wordmark className="text-2xl" />
+      <p className="text-sm text-muted">{children}</p>
+    </div>
+  );
+}
+
 const NAV = [
+  { to: "/home", label: "Home", icon: Icon.Home, hint: "What needs attention" },
   { to: "/chat", label: "Ask", icon: Icon.Chat, hint: "Questions and deep research" },
   { to: "/documents", label: "Documents", icon: Icon.Doc, hint: "Upload and track processing" },
   { to: "/insights", label: "Insights", icon: Icon.Chart, hint: "Gaps, conflicts, usage", minRole: "ADMIN" },
   { to: "/team", label: "Team", icon: Icon.Users, hint: "Members, invites, audit", minRole: "ADMIN" },
+  { to: "/settings", label: "Settings", icon: Icon.Gear, hint: "Account and workspace" },
 ];
 
 function initials(email = "") {
@@ -59,7 +80,7 @@ function SidebarContents({ onNavigate }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center px-4">
-        <Link to="/chat" onClick={onNavigate}>
+        <Link to="/home" onClick={onNavigate}>
           <Wordmark />
         </Link>
       </div>

@@ -71,6 +71,7 @@ class Citation(BaseModel):
     # The [n] marker the answer uses for this source. Absent on messages saved
     # before numbered citations existed.
     n: int | None = None
+    doc_id: str | None = None
 
 
 class AskResponse(BaseModel):

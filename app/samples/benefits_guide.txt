@@ -1,0 +1,18 @@
+Northwind Freight Pvt. Ltd. — Benefits Guide 2026
+
+Fictional demo data for DocuMind.
+
+1. Health insurance
+Every employee is covered by a family floater health insurance policy of Rs 5 lakh, covering the employee, spouse and up to two children. Parents can be added for an annual premium of Rs 9,000, deducted from salary.
+
+2. Wellness
+Employees can claim gym or fitness reimbursement of up to Rs 1,000 per month. A free annual health check-up is available at partner hospitals.
+
+3. Learning
+Each employee has a learning budget of Rs 30,000 per financial year for courses, certifications and books. Unused budget does not carry forward.
+
+4. Provident fund and gratuity
+The company contributes 12% of basic salary to the provident fund. Gratuity is paid as per the Payment of Gratuity Act after 5 years of continuous service.
+
+5. Employee referral
+A successful referral earns Rs 25,000, paid after the new hire completes probation.

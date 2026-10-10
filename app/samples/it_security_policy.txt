@@ -1,0 +1,21 @@
+Northwind Freight Pvt. Ltd. — IT Security Policy
+
+Fictional demo data for DocuMind.
+
+1. Passwords
+Passwords must be at least 12 characters long and must not be reused across systems. Passwords are changed only when there is a reason to believe they were exposed; there is no forced periodic change.
+
+2. Multi-factor authentication
+Multi-factor authentication (MFA) is mandatory for email, the HR portal, the travel portal and all remote access. SMS codes are not allowed; use the authenticator app.
+
+3. Devices
+Company laptops have full-disk encryption enabled and must lock automatically after 5 minutes of inactivity. USB storage devices are blocked on all company laptops. Personal devices may access email only through the managed mobile app.
+
+4. Phishing and incidents
+Report a suspected phishing email by forwarding it to security@northwind.example within 1 hour of noticing it, then delete it. Report a lost or stolen laptop or phone to the IT helpdesk within 24 hours. Do not try to investigate an incident yourself.
+
+5. Data classification
+Data is classified as Public, Internal, Confidential or Restricted. Customer shipment data is Confidential. Restricted data (salary and health records) may only be stored in approved HR systems.
+
+6. Software
+Only software from the company software portal may be installed. Requests for new software go through the IT helpdesk.

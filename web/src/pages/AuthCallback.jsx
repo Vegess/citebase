@@ -11,7 +11,7 @@ const ERRORS = {
   provider_error: "The sign-in provider didn't respond. Please try again.",
   provider_disabled: "That sign-in option isn't set up on this server.",
   use_password:
-    "This email already has a DocuMind password. Sign in with your email and password instead.",
+    "This email already has a Citebase password. Sign in with your email and password instead.",
   account_removed: "This account was removed from its workspace. Ask an admin for a new invite.",
 };
 
@@ -33,7 +33,7 @@ export default function AuthCallbackPage() {
       setError(ERRORS[params.get("error")] || "Sign-in didn't complete. Please try again.");
       return;
     }
-    signInWithToken(token).then(() => navigate("/chat", { replace: true }));
+    signInWithToken(token).then(() => navigate("/home", { replace: true }));
   }, [signInWithToken, navigate]);
 
   return (

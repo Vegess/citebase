@@ -44,7 +44,10 @@ def verify_password_or_dummy(plain: str, hashed: str | None) -> bool:
 
 def create_access_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": user_id, "exp": expire}
+    now = datetime.now(timezone.utc)
+    # "iat_ms" makes revocation precise: a token issued a moment before
+    # "sign out everywhere" in the same second must still be rejected.
+    payload = {"sub": user_id, "exp": expire, "iat": int(now.timestamp()), "iat_ms": int(now.timestamp() * 1000)}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -73,6 +76,13 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise credentials_error
+    if user.tokens_valid_after is not None:
+        cutoff = user.tokens_valid_after
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        issued_ms = payload.get("iat_ms") or int(payload.get("iat", 0)) * 1000
+        if int(issued_ms) <= int(cutoff.timestamp() * 1000):
+            raise credentials_error  # signed out everywhere / password changed since this token
     return user
 
 

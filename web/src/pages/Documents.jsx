@@ -56,6 +56,20 @@ export default function DocumentsPage() {
     return () => clearTimeout(timer);
   }, [docs, token]);
 
+  const [loadingSamples, setLoadingSamples] = useState(false);
+  async function addSamples() {
+    setLoadingSamples(true);
+    try {
+      const created = await api.loadSamples(token);
+      setDocs((current) => [...created, ...current]);
+      notify(`Added ${created.length} sample documents. They'll be ready in a moment.`, "info");
+    } catch (err) {
+      notify(err.detail || "Couldn't add the sample documents.");
+    } finally {
+      setLoadingSamples(false);
+    }
+  }
+
   async function handleFiles(fileList) {
     const files = Array.from(fileList).filter(Boolean);
     if (files.length === 0) return;
@@ -101,7 +115,7 @@ export default function DocumentsPage() {
       <main className="mx-auto max-w-4xl px-5 py-10">
       <h1 className="font-display text-3xl text-ink">Documents</h1>
       <p className="mt-1 text-sm text-muted">
-        PDFs and text files. Each one is read, indexed, and made searchable for your
+        PDF, Word, Markdown and text files. Each one is read, indexed, and made searchable for your
         organisation only. Scanned PDFs (images of pages) aren't supported yet.
       </p>
 
@@ -128,7 +142,7 @@ export default function DocumentsPage() {
         }`}
       >
         <p className="text-sm text-ink">Drop files here to add them</p>
-        <p className="mt-1 text-xs text-muted">PDF or .txt, up to 20 MB each</p>
+        <p className="mt-1 text-xs text-muted">PDF, Word (.docx), Markdown or .txt, up to 20 MB each</p>
         {slowUpload && uploading && (
           <p className="mt-3 text-xs text-muted">
             ⏳ Waking up the server — this can take up to a minute on the free tier.
@@ -146,7 +160,7 @@ export default function DocumentsPage() {
           ref={fileInput}
           type="file"
           multiple
-          accept=".pdf,.txt,application/pdf,text/plain"
+          accept=".pdf,.txt,.md,.markdown,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
           onChange={(e) => {
             handleFiles(e.target.files);
@@ -167,6 +181,16 @@ export default function DocumentsPage() {
           <EmptyState title="Nothing indexed yet">
             Add a handbook, a policy, or any PDF above. Once it finishes processing you
             can ask questions about it.
+            {canUpload && (
+              <span className="mt-4 block">
+                <Button variant="secondary" size="sm" disabled={loadingSamples} onClick={addSamples}>
+                  {loadingSamples ? "Adding…" : "Try with sample documents"}
+                </Button>
+                <span className="mt-2 block text-xs text-muted">
+                  Five short policies from Northwind Freight, a made-up company.
+                </span>
+              </span>
+            )}
           </EmptyState>
         ) : (
           <ul className="divide-y divide-rule overflow-hidden rounded-lg border border-rule bg-surface">

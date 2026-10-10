@@ -48,6 +48,12 @@ class User(Base):
     # Set when the account was created through a provider that verified the
     # email (Google/GitHub). Only such accounts can be signed into that way.
     oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Proven by a provider sign-in or an emailed reset link. Google/GitHub
+    # sign-in only enters accounts whose email is verified.
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_set: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    # Access tokens issued before this moment are rejected.
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     org: Mapped[Org] = relationship(back_populates="users")
 
@@ -241,3 +247,42 @@ class AuditEvent(Base):
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class UserSession(Base):
+    """A refresh session behind the httpOnly cookie. Only the hash is stored."""
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    user_agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    via: Mapped[str] = mapped_column(String(10), nullable=False)  # email | admin
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UserIdentity(Base):
+    """A sign-in provider connected to an account."""
+    __tablename__ = "user_identities"
+    __table_args__ = (UniqueConstraint("user_id", "provider", name="uq_identity_user_provider"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

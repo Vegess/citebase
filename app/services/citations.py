@@ -69,7 +69,7 @@ def looks_like_abstention(answer: str) -> bool:
 def select_citations(answer: str, chunks: list[dict]) -> list[dict]:
     """Return [{n, filename, chunk_index}] for the sources the answer used."""
     numbered = [
-        {"filename": c["filename"], "chunk_index": c["chunk_index"], "n": i}
+        {"filename": c["filename"], "chunk_index": c["chunk_index"], "n": i, **({"doc_id": c["doc_id"]} if c.get("doc_id") else {})}
         for i, c in enumerate(chunks, start=1)
     ]
     used = cited_numbers(normalize_markers(answer), len(chunks))
