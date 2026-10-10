@@ -1,4 +1,4 @@
-"""Create (or refresh) the Northwind Freight demo workspace for showing DocuMind.
+"""Create (or refresh) the Northwind Freight demo workspace for showing Citebase.
 
     python -m app.seed_demo --email demo@yourdomain.com --password 'a-long-password'
 

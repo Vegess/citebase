@@ -176,7 +176,7 @@ def _seconds_until_next_job() -> float:
 
 class Worker(threading.Thread):
     def __init__(self):
-        super().__init__(name="documind-worker", daemon=True)
+        super().__init__(name="citebase-worker", daemon=True)
         self._stop_event = threading.Event()
 
     def stop(self) -> None:

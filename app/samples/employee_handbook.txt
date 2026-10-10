@@ -1,6 +1,6 @@
 Northwind Freight Pvt. Ltd. — Employee Handbook (2026 edition)
 
-This is a fictional company created as demo data for DocuMind. Any resemblance to a real company is coincidental.
+This is a fictional company created as demo data for Citebase. Any resemblance to a real company is coincidental.
 
 1. Working hours
 Standard working hours are 9:30 am to 6:30 pm, Monday to Friday, with a one-hour lunch break. Operations staff at the warehouses work rotating shifts published two weeks in advance.

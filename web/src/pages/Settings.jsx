@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, Field, useToast } from "../components/ui";
+import { Button, Field, LoadError, useToast } from "../components/ui";
 import { GitHubMark, GoogleMark, Icon } from "../components/icons";
 
 const PROVIDER = {
@@ -166,14 +166,16 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [account, setAccount] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setAccount(await api.getAccount(token));
-    } catch (err) {
-      notify(err.detail || "Couldn't load your account.");
+      setFailed(false);
+    } catch {
+      setFailed(true);
     }
-  }, [token, notify]);
+  }, [token]);
 
   useEffect(() => {
     load();
@@ -190,6 +192,15 @@ export default function SettingsPage() {
       setBanner({ ok: false, text: LINK_ERRORS[params.get("error")] || "Connecting didn't work. Please try again." });
     }
   }, []);
+
+  async function sendVerification() {
+    try {
+      await api.requestVerification(token);
+      notify(`Sent. Check ${account.email} for the link.`, "info");
+    } catch (err) {
+      notify(err.detail || "Couldn't send the email.");
+    }
+  }
 
   async function connect(provider) {
     try {
@@ -240,7 +251,9 @@ export default function SettingsPage() {
         </p>
       )}
 
-      {!account ? (
+      {!account && failed ? (
+        <LoadError onRetry={load} />
+      ) : !account ? (
         <div className="h-48 rounded-xl border border-rule bg-surface pulse-soft" />
       ) : (
         <>
@@ -261,9 +274,18 @@ export default function SettingsPage() {
               <dd className="font-mono text-xs text-ink">{account.role.toLowerCase()}</dd>
             </dl>
             {!account.email_verified && (
-              <p className="mt-4 text-xs text-muted">
-                Connect Google or GitHub below to verify your email. Then you can also sign in with it.
-              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-rule-soft px-3 py-2.5 text-xs text-ink-soft">
+                <span className="flex-1">
+                  {account.email_enabled
+                    ? "Confirm your email to invite teammates. Connecting Google or GitHub below also confirms it."
+                    : "Connect Google or GitHub below to confirm your email. Then you can also sign in with it."}
+                </span>
+                {account.email_enabled && (
+                  <Button size="sm" variant="secondary" onClick={sendVerification}>
+                    Send confirmation email
+                  </Button>
+                )}
+              </div>
             )}
           </Section>
 
@@ -301,7 +323,7 @@ export default function SettingsPage() {
           </Section>
 
           <Section title={account.password_set ? "Change password" : "Add a password"}>
-            <PasswordForm account={account} onChanged={async (t) => { await signInWithToken(t); await load(); }} />
+            <PasswordForm account={account} onChanged={(t) => signInWithToken(t)} />
           </Section>
 
           <Section

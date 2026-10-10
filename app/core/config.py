@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     session_cookie_path: str = "/api/auth"
     # Password-reset emails (Resend). Without a key, admins hand out reset links instead.
     resend_api_key: str | None = None
+    brevo_api_key: str | None = None
     mail_from: str = "Citebase <no-reply@citebase.app>"
 
     # RAG

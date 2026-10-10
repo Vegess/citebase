@@ -14,12 +14,12 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.models import Document, DocumentChunk
+from app.models.models import Collection, Document, DocumentChunk
 from app.services import jobs, rag
-from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete
+from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete, llm_configured
 
 logger = logging.getLogger("app.services.conflicts")
 
@@ -64,10 +64,18 @@ def _run(db: Session, payload: dict) -> None:
     doc = db.get(Document, payload["doc_id"])
     if doc is None or doc.status != "ready":
         return
+    # A warning on this document quotes the other one, so compare only with
+    # documents that everyone who can see this one can also see: General, open
+    # collections, and (for a restricted document) its own collection.
+    open_ids = list(db.scalars(select(Collection.id).where(
+        Collection.org_id == doc.org_id, Collection.restricted.is_(False))))
+    home = db.get(Collection, doc.collection_id) if doc.collection_id else None
+    shared = open_ids + ([home.id] if home is not None and home.restricted else [])
     others = {
         d.id: d.filename
         for d in db.scalars(select(Document).where(
-            Document.org_id == doc.org_id, Document.status == "ready", Document.id != doc.id))
+            Document.org_id == doc.org_id, Document.status == "ready", Document.id != doc.id,
+            or_(Document.collection_id.is_(None), Document.collection_id.in_(shared or [""]))))
     }
     now = datetime.now(timezone.utc)
     if not others:
@@ -116,6 +124,33 @@ def _run(db: Session, payload: dict) -> None:
     doc.conflicts, doc.conflicts_checked_at = json.dumps(conflicts), now
     db.commit()
     logger.info("Conflict check doc_id=%s conflicts=%s", doc.id, len(conflicts))
+
+
+def recheck(db: Session, docs: list[Document]) -> None:
+    """Forget stored warnings and check again. Used when who-can-see-what
+    changes (a move, a collection becoming restricted): a stored warning quotes
+    another file and must never outlive the visibility it was computed for.
+    Clearing happens in the caller's transaction, so there is no window where
+    a stale warning is visible."""
+    for doc in docs:
+        doc.conflicts, doc.conflicts_checked_at, doc.conflicts_state = None, None, None
+        if doc.status == "ready" and llm_configured():
+            jobs.enqueue(db, KIND, {"doc_id": doc.id})
+
+
+def mentioning(db: Session, org_id: str, filenames: set[str]) -> list[Document]:
+    """Documents whose stored warnings quote any of `filenames`."""
+    if not filenames:
+        return []
+    out = []
+    for doc in db.scalars(select(Document).where(Document.org_id == org_id, Document.conflicts.is_not(None))):
+        try:
+            entries = json.loads(doc.conflicts or "[]")
+        except ValueError:
+            entries = []
+        if any(e.get("other_file") in filenames for e in entries):
+            out.append(doc)
+    return out
 
 
 jobs.register(KIND, jobs.Handler(run=_run))

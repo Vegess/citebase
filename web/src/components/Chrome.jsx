@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import { Icon } from "./icons";
+import { useDialog } from "../hooks/useDialog";
 
 /** The app mark: a document with a [1] citation badge. Same art as /favicon.svg. */
 export function LogoMark({ className = "h-[1.2em] w-[1.2em]" }) {
@@ -37,6 +38,13 @@ export function ProtectedRoute({ children }) {
   const location = useLocation();
   if (!isAuthed && restoring) return <FullPageNote>Signing you back in…</FullPageNote>;
   if (!isAuthed) return <Navigate to="/login" state={{ from: location }} replace />;
+  return children;
+}
+
+/** Pages only admins can use; others go Home instead of hitting a 403. */
+export function AdminOnly({ children }) {
+  const { user } = useAuth();
+  if (user && !hasRole(user, "ADMIN")) return <Navigate to="/home" replace />;
   return children;
 }
 
@@ -160,12 +168,7 @@ export function AppLayout({ children }) {
   const location = useLocation();
 
   useEffect(() => setOpen(false), [location.pathname]);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  const drawer = useDialog(() => setOpen(false), open);
 
   return (
     <div className="min-h-dvh bg-paper">
@@ -186,7 +189,7 @@ export function AppLayout({ children }) {
       </header>
 
       {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+        <div ref={drawer} className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-xl">
             <button

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, StatusBadge, useToast } from "../components/ui";
+import { Button, LoadError, StatusBadge, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
 
 function greeting() {
@@ -79,14 +79,16 @@ export default function HomePage() {
   const [home, setHome] = useState(null);
   const [question, setQuestion] = useState("");
   const [loadingSamples, setLoadingSamples] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setHome(await api.getHome(token));
-    } catch (err) {
-      notify(err.detail || "Couldn't load your home page.");
+      setFailed(false);
+    } catch {
+      setFailed(true);
     }
-  }, [token, notify]);
+  }, [token]);
 
   useEffect(() => {
     load();
@@ -143,7 +145,11 @@ export default function HomePage() {
         </Button>
       </form>
 
-      {!home ? (
+      {!home && failed ? (
+        <div className="mt-8">
+          <LoadError onRetry={load} />
+        </div>
+      ) : !home ? (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-40 rounded-xl border border-rule bg-surface pulse-soft" />

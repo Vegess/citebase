@@ -113,6 +113,11 @@ class Document(Base):
     # Written by the check_conflicts job: JSON list of {other_filename, topic, this_says, other_says}.
     conflicts: Mapped[str | None] = mapped_column(Text, nullable=True)
     conflicts_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    conflicts_state: Mapped[str | None] = mapped_column(String(12), nullable=True)  # None=open | resolved | ignored
+    # NULL = "General", visible to everyone in the workspace.
+    collection_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    previous_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -285,4 +290,42 @@ class UserIdentity(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Collection(Base):
+    """A folder of documents. Restricted ones are visible only to members (and admins)."""
+    __tablename__ = "collections"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_collection_org_name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    restricted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class CollectionMember(Base):
+    __tablename__ = "collection_members"
+
+    collection_id: Mapped[str] = mapped_column(ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class VerifiedAnswer(Base):
+    """An answer an admin approved; the same question gets it instantly."""
+    __tablename__ = "verified_answers"
+    __table_args__ = (UniqueConstraint("org_id", "question_key", name="uq_verified_org_question"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("orgs.id"), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    question_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

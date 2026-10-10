@@ -18,7 +18,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.models.models import Org, OrgInvite, User
 from app.models.schemas import AcceptInviteRequest, InvitePreview, SignupRequest, TokenResponse
 from app.routes.chat import limiter
-from app.services import audit
+from app.services import mailer, audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -59,6 +59,12 @@ def signup(request: Request, body: SignupRequest, db: Session = Depends(get_db))
     audit.record(db, org_id=org.id, actor_id=user.id, action="org.created", target_type="org", target_id=org.id)
     db.commit()
 
+    if mailer.enabled():
+        # Sign-up doesn't prove the address; until the link is used the account
+        # can't invite anyone (stops someone squatting an email and planting a
+        # second account in "their" workspace).
+        from app.routes.account import send_verification
+        send_verification(db, user)
     return TokenResponse(access_token=create_access_token(user.id))
 
 

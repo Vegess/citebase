@@ -44,6 +44,7 @@ const statusStyles = {
   chunking: "bg-warn-soft text-warn",
   embedding: "bg-warn-soft text-warn",
   failed: "bg-danger-soft text-danger",
+  superseded: "bg-rule-soft text-muted",
   reupload_required: "bg-danger-soft text-danger",
 };
 
@@ -54,6 +55,7 @@ const statusLabels = {
   ready: "ready",
   failed: "failed",
   reupload_required: "re-upload needed",
+  superseded: "older version",
 };
 
 /** Statuses the backend is still working through; the UI polls these. */
@@ -122,4 +124,17 @@ export function useToast() {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used inside <ToastProvider>");
   return ctx;
+}
+
+/** Shown instead of an endless loading placeholder when a page fails to load. */
+export function LoadError({ onRetry, children = "This page couldn't load." }) {
+  return (
+    <div className="rounded-xl border border-rule bg-surface px-6 py-10 text-center">
+      <p className="text-sm text-ink">{children}</p>
+      <p className="mt-1 text-xs text-muted">The server may be waking up. Give it a moment.</p>
+      <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  );
 }

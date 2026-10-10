@@ -1,35 +1,36 @@
 import { useState } from "react";
 
-/**
- * Dismissible banner shown on Demo/Documents and Chat pages.
- * Informs users that this is a demo environment with data ephemera.
- */
-export function DemoBanner() {
-  const [dismissed, setDismissed] = useState(() => {
-    // Persist dismissal in localStorage for the session
-    const stored = localStorage.getItem("demo-banner-dismissed");
-    return stored === "true";
-  });
+const KEY = "citebase-beta-banner-dismissed";
 
+function read() {
+  try {
+    return window.localStorage.getItem(KEY) === "true";
+  } catch {
+    return false; // storage blocked: just show the banner
+  }
+}
+
+/** Dismissible beta notice on the Documents page. */
+export function DemoBanner() {
+  const [dismissed, setDismissed] = useState(read);
   if (dismissed) return null;
 
-  const handleDismiss = () => {
+  const dismiss = () => {
     setDismissed(true);
-    localStorage.setItem("demo-banner-dismissed", "true");
+    try {
+      window.localStorage.setItem(KEY, "true");
+    } catch {
+      /* fine: it comes back next visit */
+    }
   };
 
   return (
     <div className="border-b border-warn/20 bg-warn-soft/30 px-5 py-2.5 text-sm text-warn">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
         <p>
-          <span className="font-medium">Demo project</span> — please don't upload
-          confidential documents. Data may be reset at any time.
+          <span className="font-medium">Beta</span> — please don't upload highly confidential documents yet.
         </p>
-        <button
-          onClick={handleDismiss}
-          className="ml-auto text-xs opacity-60 hover:opacity-100 transition-opacity"
-          aria-label="Dismiss"
-        >
+        <button onClick={dismiss} className="ml-auto text-xs opacity-60 transition-opacity hover:opacity-100" aria-label="Dismiss notice">
           Dismiss
         </button>
       </div>

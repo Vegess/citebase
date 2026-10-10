@@ -138,11 +138,33 @@ export const getDocument = (token, id) => request(`/documents/${id}`, { token })
 export const deleteDocument = (token, id) =>
   request(`/documents/${id}`, { token, method: "DELETE" });
 
-export function uploadDocument(token, file) {
+export function uploadDocument(token, file, collectionId = null) {
   const fd = new FormData();
   fd.append("file", file);
+  if (collectionId) fd.append("collection_id", collectionId);
   return request("/documents", { token, method: "POST", body: fd });
 }
+
+export function uploadVersion(token, docId, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return request(`/documents/${docId}/versions`, { token, method: "POST", body: fd });
+}
+
+export const getDocumentDetail = (token, id) => request(`/documents/${id}/detail`, { token });
+export const moveDocument = (token, id, collectionId) =>
+  request(`/documents/${id}`, { token, method: "PATCH", body: { collection_id: collectionId || null } });
+export const reviewConflicts = (token, id, state) =>
+  request(`/documents/${id}/conflicts`, { token, method: "POST", body: { state } });
+
+export const listCollections = (token) => request("/collections", { token });
+export const createCollection = (token, body) => request("/collections", { token, method: "POST", body });
+export const updateCollection = (token, id, body) => request(`/collections/${id}`, { token, method: "PATCH", body });
+export const deleteCollection = (token, id) => request(`/collections/${id}`, { token, method: "DELETE" });
+
+export const verifyAnswer = (token, messageId) =>
+  request(`/chat/messages/${messageId}/verify`, { token, method: "POST" });
+export const removeVerified = (token, id) => request(`/verified/${id}`, { token, method: "DELETE" });
 
 /* ---------------- org: members, invites, audit ---------------- */
 
@@ -251,7 +273,7 @@ export async function askStream(
 
     if (parsed.error) throw new ApiError(500, parsed.error);
     if (parsed.citations) onCitations?.(parsed.citations);
-    if (parsed.message_id) onMeta?.({ id: parsed.message_id, answer_kind: parsed.answer_kind });
+    if (parsed.message_id) onMeta?.({ id: parsed.message_id, answer_kind: parsed.answer_kind, verified: parsed.verified });
     if (parsed.step) onStep?.(parsed.step);
 
     const text = parsed.text ?? parsed.delta ?? parsed.content;
@@ -304,6 +326,8 @@ export const signOutEverywhere = (token) => request("/account/sign-out-everywher
 export const linkProvider = (token, provider) => request(`/account/link/${provider}`, { token, method: "POST" });
 export const unlinkProvider = (token, provider) =>
   request(`/account/identities/${provider}`, { token, method: "DELETE" });
+export const requestVerification = (token) => request("/account/verify-email", { token, method: "POST" });
+export const confirmEmail = (verifyToken) => request("/auth/verify-email", { method: "POST", body: { token: verifyToken } });
 export const forgotPassword = (email) => request("/auth/forgot-password", { method: "POST", body: { email } });
 export const previewReset = (resetToken) => request(`/auth/password-reset/${encodeURIComponent(resetToken)}`);
 export const resetPassword = (resetToken, password) =>

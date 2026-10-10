@@ -1,6 +1,6 @@
 Northwind Freight Pvt. Ltd. — Code of Conduct
 
-Fictional demo data for DocuMind.
+Fictional demo data for Citebase.
 
 1. Gifts and hospitality
 Employees may accept gifts from customers or suppliers worth up to Rs 2,000 per occasion. Anything above that must be declined or declared to Compliance within 7 days. Cash or cash-equivalent gifts are never accepted.

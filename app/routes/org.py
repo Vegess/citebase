@@ -6,6 +6,7 @@ Permission rules (enforced here, server-side, from the DB role):
   role below your own (OWNER may grant ADMIN). OWNER is never assignable here.
 - Nobody can change or remove themselves, so an org cannot lose its owner.
 """
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -18,11 +19,11 @@ from app.core.database import get_db
 from app.core.security import require_role, role_rank
 from app.models.models import (
     AuditEvent, Conversation, ConversationMessage, Document, DocumentChunk, DocumentEvent, Org, OrgInvite,
-    PasswordReset, QuestionUsage, User, UserIdentity, UserSession,
+    Collection, CollectionMember, Job, PasswordReset, QuestionUsage, User, UserIdentity, UserSession, VerifiedAnswer,
 )
 from app.models.schemas import AuditEventOut, InviteCreate, InviteCreated, InviteOut, MemberOut, RoleUpdate
 from app.routes.auth import hash_invite_token, normalize_email
-from app.services import audit, resets
+from app.services import audit, mailer, resets
 from app.core.config import get_settings
 
 router = APIRouter(prefix="/org", tags=["org"])
@@ -104,11 +105,23 @@ def create_reset_link(user_id: str, actor: User = Depends(require_admin), db: Se
     _check_can_manage(actor, member)
     if not member.is_active:
         raise HTTPException(status_code=400, detail="This person has been removed from the workspace.")
-    raw = resets.create(db, member, via="admin", created_by=actor.id)
+    emailing = mailer.enabled()
+    # With email on, the link goes straight to the member's inbox and is never
+    # shown to the admin, so an admin can't use it to get into someone's account.
+    raw = resets.create(db, member, via="email" if emailing else "admin", created_by=actor.id)
     audit.record(db, org_id=actor.org_id, actor_id=actor.id, action="member.reset_link_created",
-                 target_type="user", target_id=member.id, details={"email": member.email})
+                 target_type="user", target_id=member.id, details={"email": member.email, "emailed": emailing})
     db.commit()
-    return {"url": f"{get_settings().frontend_url.rstrip('/')}/reset-password#{raw}", "email": member.email}
+    url = f"{get_settings().frontend_url.rstrip('/')}/reset-password#{raw}"
+    if emailing:
+        sent = mailer.send(member.email, "Reset your Citebase password",
+                           f"{actor.email} sent you a link to choose a new Citebase password.\n\n"
+                           f"Choose it here (valid for 1 hour, works once):\n{url}\n\n"
+                           "If you didn't ask for this, you can ignore this email.")
+        if not sent:
+            raise HTTPException(status_code=502, detail="The email couldn't be sent. Try again in a minute.")
+        return {"sent": True, "email": member.email}
+    return {"sent": False, "url": url, "email": member.email}
 
 
 class RenameWorkspace(BaseModel):
@@ -134,10 +147,13 @@ def rename_workspace(body: RenameWorkspace, actor: User = Depends(require_admin)
 def create_invite(body: InviteCreate, actor: User = Depends(require_admin), db: Session = Depends(get_db)):
     if not _can_grant(actor, body.role):
         raise HTTPException(status_code=403, detail="You can't invite someone at or above your own role.")
+    if mailer.enabled() and actor.email_verified_at is None:
+        raise HTTPException(status_code=403, detail="Confirm your email address before inviting people. "
+                                                    "Check your inbox, or send a new link from Settings.")
 
     email = normalize_email(body.email)
     if db.scalar(select(User.id).where(func.lower(User.email) == email)) is not None:
-        raise HTTPException(status_code=409, detail="That email already has a DocuMind account.")
+        raise HTTPException(status_code=409, detail="That email already has a Citebase account.")
 
     now = datetime.now(timezone.utc)
     # One open invite per email per org: re-inviting replaces the old link.
@@ -168,9 +184,17 @@ def create_invite(body: InviteCreate, actor: User = Depends(require_admin), db: 
     )
     db.commit()
     db.refresh(invite)
+    org = db.get(Org, actor.org_id)
+    emailed = mailer.send(
+        email, f"You're invited to {org.name} on Citebase",
+        f"{actor.email} invited you to join {org.name} on Citebase as {body.role.lower()}.\n\n"
+        f"Accept here (works once, expires in 7 days):\n"
+        f"{get_settings().frontend_url.rstrip('/')}/invite#{token}\n\n"
+        "Citebase answers questions from your company's documents, with the source for every claim.",
+    )
     return InviteCreated(
         id=invite.id, email=invite.email, role=invite.role,
-        created_at=invite.created_at, expires_at=invite.expires_at, token=token,
+        created_at=invite.created_at, expires_at=invite.expires_at, token=token, emailed=emailed,
     )
 
 
@@ -244,7 +268,20 @@ def delete_workspace(body: DeleteWorkspace, actor: User = Depends(require_role("
     db.execute(delete(Conversation).where(Conversation.org_id == org_id))
     db.execute(delete(DocumentEvent).where(DocumentEvent.org_id == org_id))
     db.execute(delete(DocumentChunk).where(DocumentChunk.org_id == org_id))
+    doc_ids = set(db.scalars(select(Document.id).where(Document.org_id == org_id)))
     db.execute(delete(Document).where(Document.org_id == org_id))
+    # Queued jobs hold document text in their payload; drop this workspace's.
+    for job in db.scalars(select(Job)):
+        try:
+            payload = json.loads(job.payload or "{}")
+        except ValueError:
+            continue
+        if payload.get("org_id") == org_id or payload.get("doc_id") in doc_ids:
+            db.delete(job)
+    collection_ids = list(db.scalars(select(Collection.id).where(Collection.org_id == org_id)))
+    db.execute(delete(CollectionMember).where(CollectionMember.collection_id.in_(collection_ids or [""])))
+    db.execute(delete(Collection).where(Collection.org_id == org_id))
+    db.execute(delete(VerifiedAnswer).where(VerifiedAnswer.org_id == org_id))
     db.execute(delete(OrgInvite).where(OrgInvite.org_id == org_id))
     db.execute(delete(AuditEvent).where(AuditEvent.org_id == org_id))
     db.execute(delete(QuestionUsage).where(or_(

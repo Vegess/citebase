@@ -56,9 +56,9 @@ def get_usage(db: Session, now: datetime | None = None) -> int:
 
 
 _LIMIT_MESSAGES = {
-    "global": "This demo has reached its daily AI quota. Please try again tomorrow.",
+    "global": "Citebase has reached its daily AI limit. Please try again tomorrow.",
     "org": "Your workspace has reached its daily question limit. Please try again tomorrow.",
-    "user": "You've reached your daily question limit for this demo. Please try again tomorrow.",
+    "user": "You've reached your daily question limit. Please try again tomorrow.",
 }
 
 

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.models import Document
-from app.services import rag
+from app.services import access, rag
 from app.services.answer_plan import _whole_document_chunks, match_documents_by_name
 from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete, llm_configured
 
@@ -47,7 +47,7 @@ _RESEARCH = re.compile(
     re.IGNORECASE,
 )
 
-SYSTEM = """You are the research planner for DocuMind, a company-document assistant.
+SYSTEM = """You are the research planner for Citebase, a company-document assistant.
 You do NOT write the final answer. You decide which searches to run so that a
 later step can answer the user's question from the evidence you collect.
 
@@ -101,9 +101,10 @@ def _parse_action(reply: str) -> dict:
     return action
 
 
-def _documents(db: Session, org_id: str) -> list[Document]:
+def _documents(db: Session, org_id: str, collections: tuple[str, ...] | None = None) -> list[Document]:
     return list(db.scalars(
-        select(Document).where(Document.org_id == org_id, Document.status == "ready").order_by(Document.created_at)
+        select(Document).where(Document.org_id == org_id, Document.status == "ready")
+        .where(access.document_filter(collections)).order_by(Document.created_at)
     ))
 
 
@@ -126,9 +127,11 @@ def _render(passages: list[dict]) -> str:
     return "\n".join(out) or "(nothing found)"
 
 
-def run_research(db: Session, org_id: str, question: str, history: list[dict] | None = None):
-    """Generator: yields one dict per step for live display, returns ResearchResult."""
-    docs = _documents(db, org_id)
+def run_research(db: Session, org_id: str, question: str, history: list[dict] | None = None,
+                 collections: tuple[str, ...] | None = None):
+    """Generator: yields one dict per step for live display, returns ResearchResult.
+    Only documents in `collections` (services/access.py) are listed, searched or read."""
+    docs = _documents(db, org_id, collections)
     by_name = {d.filename: d for d in docs}
     evidence: dict[tuple, dict] = {}
     used_chars = 0
@@ -192,7 +195,7 @@ def run_research(db: Session, org_id: str, question: str, history: list[dict] | 
             filename = action.get("filename")
             doc = by_name.get(filename) if filename else None
             hits = rag.retrieve_chunks(org_id, query, top_k=SEARCH_K, db=db,
-                                       doc_ids=[doc.id] if doc else None)
+                                       doc_ids=[doc.id] if doc else None, collections=collections)
             found = add(hits)
             observation = f"Results for {query!r}" + (f" in {doc.filename}" if doc else "") + ":\n" + _render(hits)
             entry = {"step": step, "action": "search", "thought": thought, "query": query,
@@ -208,7 +211,7 @@ def run_research(db: Session, org_id: str, question: str, history: list[dict] | 
             break
 
     if not evidence:  # never answer from nothing: fall back to a normal search
-        add(rag.retrieve_chunks(org_id, question, top_k=settings.retrieval_top_k, db=db))
+        add(rag.retrieve_chunks(org_id, question, top_k=settings.retrieval_top_k, db=db, collections=collections))
 
     # Reading order within each document makes the evidence easier to reason over.
     chunks = sorted(evidence.values(), key=lambda p: (p["filename"], p["chunk_index"]))

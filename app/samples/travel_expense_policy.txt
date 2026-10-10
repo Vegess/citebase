@@ -1,6 +1,6 @@
 Northwind Freight Pvt. Ltd. — Travel and Expense Policy
 
-Fictional demo data for DocuMind.
+Fictional demo data for Citebase.
 
 1. Approval
 All business travel needs prior approval from the employee's manager in the travel portal. International travel also needs approval from the department head.
