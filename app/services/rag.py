@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.models import Document, DocumentChunk
+from app.services import access
 
 settings = get_settings()
 
@@ -184,11 +185,12 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
 
 
 def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int,
-                 doc_ids: list[str] | None = None) -> list[dict]:
+                 doc_ids: list[str] | None = None, collections: tuple[str, ...] | None = None) -> list[dict]:
     # Exact search filtered by org_id (btree index), not an ANN index: an HNSW
     # scan followed by an org filter can return fewer than top_k rows for small
     # orgs. Exact search is correct and fast at this scale (< ~100k chunks/org).
     literal = "[" + ",".join(f"{x:.7g}" for x in query_vector) + "]"
+    scope_sql, scope_params = access.sql_filter(collections)
     rows = db.execute(
         text(
             """
@@ -196,12 +198,12 @@ def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int
             FROM document_chunks c
             JOIN documents d ON d.id = c.doc_id
             WHERE c.org_id = :org_id AND d.org_id = :org_id AND d.status = 'ready'
-            {doc_filter}
+            {doc_filter} {scope}
             ORDER BY distance
             LIMIT :k
-            """.replace("{doc_filter}", "AND c.doc_id = ANY(:doc_ids)" if doc_ids else "")
+            """.replace("{doc_filter}", "AND c.doc_id = ANY(:doc_ids)" if doc_ids else "").replace("{scope}", scope_sql)
         ),
-        {"q": literal, "org_id": org_id, "k": top_k, **({"doc_ids": list(doc_ids)} if doc_ids else {})},
+        {"q": literal, "org_id": org_id, "k": top_k, **({"doc_ids": list(doc_ids)} if doc_ids else {}), **scope_params},
     ).all()
     return [
         {"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "distance": float(r.distance),
@@ -211,13 +213,14 @@ def _retrieve_pg(db: Session, org_id: str, query_vector: list[float], top_k: int
 
 
 def _retrieve_python(db: Session, org_id: str, query_vector: list[float], top_k: int,
-                     doc_ids: list[str] | None = None) -> list[dict]:
+                     doc_ids: list[str] | None = None, collections: tuple[str, ...] | None = None) -> list[dict]:
     """Fallback for SQLite (local dev and tests): same filter, cosine in Python."""
     query = (
         select(DocumentChunk.text, DocumentChunk.chunk_index, DocumentChunk.embedding, DocumentChunk.doc_id,
                Document.filename)
         .join(Document, Document.id == DocumentChunk.doc_id)
         .where(DocumentChunk.org_id == org_id, Document.org_id == org_id, Document.status == "ready")
+        .where(access.document_filter(collections))
     )
     if doc_ids:
         query = query.where(DocumentChunk.doc_id.in_(doc_ids))
@@ -261,10 +264,12 @@ def keyword_terms(text: str) -> list[str]:
             if t not in _STOPWORDS and (len(t) > 1 or t.isdigit())]
 
 
-def _keyword_pg(db: Session, org_id: str, query: str, limit: int, doc_ids: list[str] | None) -> list[dict]:
+def _keyword_pg(db: Session, org_id: str, query: str, limit: int, doc_ids: list[str] | None,
+                collections: tuple[str, ...] | None = None) -> list[dict]:
     terms = sorted(set(keyword_terms(query)))
     if not terms:
         return []
+    scope_sql, scope_params = access.sql_filter(collections)
     # Terms are [a-z0-9] only, so this OR-query cannot inject tsquery syntax.
     rows = db.execute(
         text(
@@ -275,17 +280,19 @@ def _keyword_pg(db: Session, org_id: str, query: str, limit: int, doc_ids: list[
             JOIN documents d ON d.id = c.doc_id
             WHERE c.org_id = :org_id AND d.org_id = :org_id AND d.status = 'ready'
               AND to_tsvector('english', c.text) @@ to_tsquery('english', :tsq)
-            {doc_filter}
+            {doc_filter} {scope}
             ORDER BY rank DESC
             LIMIT :k
-            """.replace("{doc_filter}", "AND c.doc_id = ANY(:doc_ids)" if doc_ids else "")
+            """.replace("{doc_filter}", "AND c.doc_id = ANY(:doc_ids)" if doc_ids else "").replace("{scope}", scope_sql)
         ),
-        {"tsq": " | ".join(terms), "org_id": org_id, "k": limit, **({"doc_ids": list(doc_ids)} if doc_ids else {})},
+        {"tsq": " | ".join(terms), "org_id": org_id, "k": limit, **({"doc_ids": list(doc_ids)} if doc_ids else {}),
+         **scope_params},
     ).all()
     return [{"text": r.text, "filename": r.filename, "chunk_index": r.chunk_index, "doc_id": r.doc_id} for r in rows]
 
 
-def _keyword_python(db: Session, org_id: str, query: str, limit: int, doc_ids: list[str] | None) -> list[dict]:
+def _keyword_python(db: Session, org_id: str, query: str, limit: int, doc_ids: list[str] | None,
+                    collections: tuple[str, ...] | None = None) -> list[dict]:
     """BM25 over the org's chunks (SQLite / local dev)."""
     terms = set(keyword_terms(query))
     if not terms:
@@ -294,6 +301,7 @@ def _keyword_python(db: Session, org_id: str, query: str, limit: int, doc_ids: l
         select(DocumentChunk.text, DocumentChunk.chunk_index, DocumentChunk.doc_id, Document.filename)
         .join(Document, Document.id == DocumentChunk.doc_id)
         .where(DocumentChunk.org_id == org_id, Document.org_id == org_id, Document.status == "ready")
+        .where(access.document_filter(collections))
     )
     if doc_ids:
         q = q.where(DocumentChunk.doc_id.in_(doc_ids))
@@ -333,8 +341,10 @@ def _fuse(vector_hits: list[dict], keyword_hits: list[dict], top_k: int, k: int 
 
 
 def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Session | None = None,
-                    doc_ids: list[str] | None = None, hybrid: bool | None = None) -> list[dict]:
-    """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org.
+                    doc_ids: list[str] | None = None, hybrid: bool | None = None,
+                    collections: tuple[str, ...] | None = None) -> list[dict]:
+    """Retrieve top-k chunks for a query, HARD-FILTERED to the caller's org and
+    to the collections they may see (`collections`, see services/access.py).
     Hybrid (vector + keyword, RRF-fused) unless HYBRID_SEARCH=false."""
     top_k = top_k if top_k is not None else settings.retrieval_top_k
     hybrid = settings.hybrid_search if hybrid is None else hybrid
@@ -344,10 +354,10 @@ def retrieve_chunks(org_id: str, query: str, top_k: int | None = None, db: Sessi
     try:
         is_pg = db.get_bind().dialect.name == "postgresql"
         pool = top_k * 4 if hybrid else top_k
-        vector_hits = (_retrieve_pg if is_pg else _retrieve_python)(db, org_id, query_vector, pool, doc_ids)
+        vector_hits = (_retrieve_pg if is_pg else _retrieve_python)(db, org_id, query_vector, pool, doc_ids, collections)
         if not hybrid:
             return vector_hits[:top_k]
-        keyword_hits = (_keyword_pg if is_pg else _keyword_python)(db, org_id, query, pool, doc_ids)
+        keyword_hits = (_keyword_pg if is_pg else _keyword_python)(db, org_id, query, pool, doc_ids, collections)
         return _fuse(vector_hits, keyword_hits, top_k)
     finally:
         if own_session:

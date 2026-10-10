@@ -18,7 +18,7 @@ from app.core.database import get_db
 from app.core.security import require_role, role_rank
 from app.models.models import (
     AuditEvent, Conversation, ConversationMessage, Document, DocumentChunk, DocumentEvent, Org, OrgInvite,
-    PasswordReset, QuestionUsage, User, UserIdentity, UserSession,
+    Collection, CollectionMember, PasswordReset, QuestionUsage, User, UserIdentity, UserSession, VerifiedAnswer,
 )
 from app.models.schemas import AuditEventOut, InviteCreate, InviteCreated, InviteOut, MemberOut, RoleUpdate
 from app.routes.auth import hash_invite_token, normalize_email
@@ -245,6 +245,10 @@ def delete_workspace(body: DeleteWorkspace, actor: User = Depends(require_role("
     db.execute(delete(DocumentEvent).where(DocumentEvent.org_id == org_id))
     db.execute(delete(DocumentChunk).where(DocumentChunk.org_id == org_id))
     db.execute(delete(Document).where(Document.org_id == org_id))
+    collection_ids = list(db.scalars(select(Collection.id).where(Collection.org_id == org_id)))
+    db.execute(delete(CollectionMember).where(CollectionMember.collection_id.in_(collection_ids or [""])))
+    db.execute(delete(Collection).where(Collection.org_id == org_id))
+    db.execute(delete(VerifiedAnswer).where(VerifiedAnswer.org_id == org_id))
     db.execute(delete(OrgInvite).where(OrgInvite.org_id == org_id))
     db.execute(delete(AuditEvent).where(AuditEvent.org_id == org_id))
     db.execute(delete(QuestionUsage).where(or_(

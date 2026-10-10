@@ -14,10 +14,10 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.models import Document, DocumentChunk
+from app.models.models import Collection, Document, DocumentChunk
 from app.services import jobs, rag
 from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete
 
@@ -64,10 +64,18 @@ def _run(db: Session, payload: dict) -> None:
     doc = db.get(Document, payload["doc_id"])
     if doc is None or doc.status != "ready":
         return
+    # A warning on this document quotes the other one, so compare only with
+    # documents that everyone who can see this one can also see: General, open
+    # collections, and (for a restricted document) its own collection.
+    open_ids = list(db.scalars(select(Collection.id).where(
+        Collection.org_id == doc.org_id, Collection.restricted.is_(False))))
+    home = db.get(Collection, doc.collection_id) if doc.collection_id else None
+    shared = open_ids + ([home.id] if home is not None and home.restricted else [])
     others = {
         d.id: d.filename
         for d in db.scalars(select(Document).where(
-            Document.org_id == doc.org_id, Document.status == "ready", Document.id != doc.id))
+            Document.org_id == doc.org_id, Document.status == "ready", Document.id != doc.id,
+            or_(Document.collection_id.is_(None), Document.collection_id.in_(shared or [""]))))
     }
     now = datetime.now(timezone.utc)
     if not others:

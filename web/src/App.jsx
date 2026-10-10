@@ -1,28 +1,36 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
-import { AppLayout, GuestOnly, ProtectedRoute } from "./components/Chrome";
+import { AppLayout, FullPageNote, GuestOnly, ProtectedRoute } from "./components/Chrome";
 import { AuthPage } from "./components/AuthPanel";
-import AuthCallbackPage from "./pages/AuthCallback";
-import PrivacyPage from "./pages/Privacy";
-import HomePage from "./pages/Home";
-import SettingsPage from "./pages/Settings";
-import { ForgotPasswordPage, ResetPasswordPage } from "./pages/PasswordReset";
 import LandingPage from "./pages/Landing";
-import { AcceptInvitePage } from "./pages/Auth";
-import DocumentsPage from "./pages/Documents";
-import ChatPage from "./pages/Chat";
-import TeamPage from "./pages/Team";
-import InsightsPage from "./pages/Insights";
 import { QuickAsk } from "./components/QuickAsk";
 import { ServerWake } from "./components/ServerWake";
 
-function AppShell({ children }) {
+// The landing page loads straight away; everything behind sign-in is fetched
+// on first visit, so first-time visitors download much less JavaScript.
+const AuthCallbackPage = lazy(() => import("./pages/AuthCallback"));
+const PrivacyPage = lazy(() => import("./pages/Privacy"));
+const HomePage = lazy(() => import("./pages/Home"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const DocumentsPage = lazy(() => import("./pages/Documents"));
+const DocumentDetailPage = lazy(() => import("./pages/DocumentDetail"));
+const ChatPage = lazy(() => import("./pages/Chat"));
+const TeamPage = lazy(() => import("./pages/Team"));
+const InsightsPage = lazy(() => import("./pages/Insights"));
+const ForgotPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ResetPasswordPage })));
+const AcceptInvitePage = lazy(() => import("./pages/Auth").then((m) => ({ default: m.AcceptInvitePage })));
+
+function InApp({ children }) {
   return (
-    <AppLayout>
-      {children}
-      <QuickAsk />
-    </AppLayout>
+    <ProtectedRoute>
+      <AppLayout>
+        <Suspense fallback={<div className="p-10 text-sm text-muted">Loading…</div>}>{children}</Suspense>
+        <QuickAsk />
+      </AppLayout>
+    </ProtectedRoute>
   );
 }
 
@@ -32,81 +40,28 @@ export default function App() {
       <AuthProvider>
         <ToastProvider>
           <ServerWake />
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<GuestOnly><AuthPage mode="signin" /></GuestOnly>} />
-            <Route path="/signup" element={<GuestOnly><AuthPage mode="signup" /></GuestOnly>} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/invite" element={<AcceptInvitePage />} />
+          <Suspense fallback={<FullPageNote>Loading…</FullPageNote>}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<GuestOnly><AuthPage mode="signin" /></GuestOnly>} />
+              <Route path="/signup" element={<GuestOnly><AuthPage mode="signup" /></GuestOnly>} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/invite" element={<AcceptInvitePage />} />
 
-            <Route
-              path="/home"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <HomePage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <SettingsPage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/documents"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <DocumentsPage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <ChatPage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
+              <Route path="/home" element={<InApp><HomePage /></InApp>} />
+              <Route path="/chat" element={<InApp><ChatPage /></InApp>} />
+              <Route path="/documents" element={<InApp><DocumentsPage /></InApp>} />
+              <Route path="/documents/:id" element={<InApp><DocumentDetailPage /></InApp>} />
+              <Route path="/insights" element={<InApp><InsightsPage /></InApp>} />
+              <Route path="/team" element={<InApp><TeamPage /></InApp>} />
+              <Route path="/settings" element={<InApp><SettingsPage /></InApp>} />
 
-            <Route
-              path="/team"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <TeamPage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/insights"
-              element={
-                <ProtectedRoute>
-                  <AppShell>
-                    <InsightsPage />
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

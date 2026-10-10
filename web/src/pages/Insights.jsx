@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { EmptyState, useToast } from "../components/ui";
+import { Button, EmptyState, useToast } from "../components/ui";
 
 const RANGES = [7, 30, 90];
 
@@ -73,6 +73,25 @@ export default function InsightsPage() {
     api.getInsights(token, days).then(setData).catch((err) => notify(err.detail || "Couldn't load insights."));
   }, [token, days, notify]);
 
+  const reload = () => api.getInsights(token, days).then(setData).catch(() => {});
+  async function review(id, state) {
+    try {
+      await api.reviewConflicts(token, id, state);
+      reload();
+    } catch (err) {
+      notify(err.detail || "Couldn't update that conflict.");
+    }
+  }
+  async function unverify(id) {
+    if (!window.confirm("Stop reusing this answer? New questions will get a freshly written answer.")) return;
+    try {
+      await api.removeVerified(token, id);
+      reload();
+    } catch (err) {
+      notify(err.detail || "Couldn't remove it.");
+    }
+  }
+
   const t = data?.totals;
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
@@ -132,8 +151,9 @@ export default function InsightsPage() {
                   {data.knowledge_gaps.map((g) => (
                     <li key={g.question} className="flex items-start justify-between gap-3 py-2.5">
                       <span className="text-sm text-ink">{g.question}</span>
-                      <span className="shrink-0 rounded-sm bg-warn-soft px-1.5 py-0.5 font-mono text-[11px] text-warn">
-                        ×{g.count}
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="rounded-sm bg-warn-soft px-1.5 py-0.5 font-mono text-[11px] text-warn">×{g.count}</span>
+                        <Link to="/documents" className="text-xs font-medium text-signal">Add a document</Link>
                       </span>
                     </li>
                   ))}
@@ -197,6 +217,70 @@ export default function InsightsPage() {
             </Section>
           </div>
         </>
+      )}
+
+      {data && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Section title="Conflict inbox" hint="Documents that may contradict each other. Fix the files, then mark them resolved.">
+            {data.open_conflicts.length === 0 ? (
+              <p className="text-sm text-muted">Nothing to review.</p>
+            ) : (
+              <ul className="divide-y divide-rule">
+                {data.open_conflicts.map((d) => (
+                  <li key={d.id} className="py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Link to={`/documents/${d.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-ink hover:text-signal">
+                        {d.filename}
+                      </Link>
+                      <Button size="sm" variant="secondary" onClick={() => review(d.id, "resolved")}>Resolved</Button>
+                      <Button size="sm" variant="ghost" onClick={() => review(d.id, "ignored")}>Ignore</Button>
+                    </div>
+                    {d.conflicts.slice(0, 2).map((c, i) => (
+                      <p key={i} className="mt-1 text-xs text-muted">
+                        <span className="font-medium text-warn">{c.topic}:</span> “{c.this_says}” vs “{c.other_says}” in{" "}
+                        <span className="font-mono">{c.other_file}</span>
+                      </p>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section title="Verified answers" hint="Approved answers reused instantly for the same question. Mark one from any answer in Ask.">
+            {data.verified_answers.length === 0 ? (
+              <p className="text-sm text-muted">None yet. Under a good answer, click “Mark as verified”.</p>
+            ) : (
+              <ul className="divide-y divide-rule">
+                {data.verified_answers.map((v) => (
+                  <li key={v.id} className="flex items-start gap-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-ink">{v.question}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {v.by ? `by ${v.by}` : ""} · {new Date(v.at).toLocaleDateString()}
+                        {!v.current && <span className="ml-1 text-warn">· paused: a cited document changed</span>}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => unverify(v.id)}>Remove</Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          {data.stale_documents.length > 0 && (
+            <Section title="Possibly out of date" hint="Not updated in over a year. Upload a new version if the policy changed.">
+              <ul className="divide-y divide-rule">
+                {data.stale_documents.map((d) => (
+                  <li key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                    <Link to={`/documents/${d.id}`} className="truncate text-ink hover:text-signal">{d.filename}</Link>
+                    <span className="shrink-0 text-xs text-muted">{new Date(d.updated_at).toLocaleDateString()}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+        </div>
       )}
     </main>
   );

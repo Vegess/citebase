@@ -33,6 +33,10 @@ class DocumentOut(BaseModel):
     summary: str | None = None
     suggested_questions: list[str] | None = None
     conflicts: list[dict] | None = None
+    conflicts_state: str | None = None
+    collection_id: str | None = None
+    version: int = 1
+    previous_version_id: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -80,6 +84,7 @@ class AskResponse(BaseModel):
     message_id: str | None = None
     answer_kind: str | None = None
     research_steps: list[dict] | None = None
+    verified: dict | None = None  # {"by": email, "at": iso} when a verified answer was reused
 
 
 class FeedbackRequest(BaseModel):

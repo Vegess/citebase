@@ -6,6 +6,10 @@
        │          v             v           │
        └────── failed <─────────────────────┘ ... ready -> queued
 
+`superseded`: a newer version of the file became ready. The old one stays for
+the history (and old citations) but is no longer searched; deleting the newer
+version brings it back to `ready`.
+
 `reupload_required` is set only by migration 0005 for documents whose vectors
 were lost with the old ChromaDB disk; it has no way out except deletion.
 
@@ -19,15 +23,16 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Document, DocumentEvent
 
-QUEUED, CHUNKING, EMBEDDING, READY, FAILED, REUPLOAD = (
-    "queued", "chunking", "embedding", "ready", "failed", "reupload_required",
+QUEUED, CHUNKING, EMBEDDING, READY, FAILED, REUPLOAD, SUPERSEDED = (
+    "queued", "chunking", "embedding", "ready", "failed", "reupload_required", "superseded",
 )
 
 ALLOWED: dict[str, set[str]] = {
     QUEUED: {CHUNKING, FAILED},
     CHUNKING: {EMBEDDING, FAILED, QUEUED},   # QUEUED = retry after a transient error
     EMBEDDING: {READY, FAILED, QUEUED},
-    READY: {QUEUED},                         # reprocess
+    READY: {QUEUED, SUPERSEDED},             # reprocess; replaced by a newer version
+    SUPERSEDED: {READY},                     # the newer version was deleted
     FAILED: {QUEUED},                        # manual retry
     REUPLOAD: set(),
 }

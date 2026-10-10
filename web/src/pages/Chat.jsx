@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useAuth } from "../context/AuthContext";
+import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
 import { DemoBanner } from "../components/DemoBanner";
@@ -248,8 +248,11 @@ function ResearchSteps({ steps, live }) {
   );
 }
 
-function Feedback({ message, onRate }) {
+function Feedback({ message, onRate, onVerify }) {
   if (!message.id || message.streaming || message.quota) return null;
+  const verifiable =
+    onVerify && message.answer_kind === "answered" && message.citations?.length > 0 &&
+    message.citations.every((c) => c.doc_id);
   const button = (value, label, glyph) => (
     <button
       type="button"
@@ -268,11 +271,24 @@ function Feedback({ message, onRate }) {
     <div className="mt-2 flex items-center gap-1">
       {button(1, "Helpful", "👍")}
       {button(-1, "Not helpful", "👎")}
+      {verifiable &&
+        (message.verifiedSaved ? (
+          <span className="ml-2 text-xs text-source">✓ Saved as the verified answer</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onVerify(message)}
+            title="Reuse this exact answer whenever someone asks this question"
+            className="ml-2 rounded-sm px-1.5 py-0.5 text-xs text-muted hover:bg-source-soft hover:text-source"
+          >
+            ✓ Mark as verified
+          </button>
+        ))}
     </div>
   );
 }
 
-function Message({ message, onRate, onOpenSource }) {
+function Message({ message, onRate, onOpenSource, onVerify }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -286,6 +302,12 @@ function Message({ message, onRate, onOpenSource }) {
   return (
     <div className="ruled-margin">
       <ResearchSteps steps={message.steps} live={message.streaming && !message.content} />
+      {message.answer_kind === "verified" && (
+        <p className="mb-2 inline-flex items-center gap-1.5 rounded-sm bg-source-soft px-2 py-0.5 text-xs font-medium text-source">
+          <Icon.Check width={13} height={13} /> Verified answer
+          {message.verified?.by && <span className="font-normal">· approved by {message.verified.by}</span>}
+        </p>
+      )}
       {message.answer_kind === "fallback" && (
         <p className="mb-2 inline-block rounded-sm bg-warn-soft px-2 py-0.5 text-xs text-warn">
           The AI model is unavailable right now — this is the closest matching passage, not a written answer.
@@ -296,7 +318,7 @@ function Message({ message, onRate, onOpenSource }) {
         {message.streaming && <span className="stream-caret" />}
       </div>
       <Sources citations={message.citations} onOpen={(c) => onOpenSource?.(c, message)} />
-      <Feedback message={message} onRate={onRate} />
+      <Feedback message={message} onRate={onRate} onVerify={onVerify} />
     </div>
   );
 }
@@ -321,7 +343,7 @@ function StarterCards({ suggestions, onPick }) {
 }
 
 export default function ChatPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const notify = useToast();
   const { conversationId, setConversationId, clearConversationId } = useConversationState();
   const [messages, setMessages] = useState([]);
@@ -476,7 +498,7 @@ export default function ChatPage() {
           updateLast({ content: receivedText });
         },
         onCitations: (citations) => updateLast({ citations }),
-        onMeta: ({ id, answer_kind }) => updateLast({ id, answer_kind }),
+        onMeta: ({ id, answer_kind, verified }) => updateLast({ id, answer_kind, verified }),
       });
       updateLast({ streaming: false });
     } catch (err) {
@@ -508,6 +530,7 @@ export default function ChatPage() {
           citations: res.citations,
           id: res.message_id,
           answer_kind: res.answer_kind,
+          verified: res.verified,
           steps: res.research_steps || null,
           streaming: false,
         });
@@ -535,6 +558,17 @@ export default function ChatPage() {
       }
       setSlowRequest(false);
       setBusy(false);
+    }
+  }
+
+  const canVerify = hasRole(user, "ADMIN");
+  async function verify(message) {
+    try {
+      await api.verifyAnswer(token, message.id);
+      setMessages((all) => all.map((m) => (m.id === message.id ? { ...m, verifiedSaved: true } : m)));
+      notify("Saved. Anyone who asks this question now gets this answer, marked as verified.", "info");
+    } catch (err) {
+      notify(err.detail || "Couldn't save the verified answer.");
     }
   }
 
@@ -650,6 +684,7 @@ export default function ChatPage() {
                 key={m.id || i}
                 message={m}
                 onRate={rate}
+                onVerify={canVerify ? verify : undefined}
                 onOpenSource={(c, msg) => {
                   const idx = messages.indexOf(msg);
                   const asked = [...messages.slice(0, idx)].reverse().find((x) => x.role === "user");

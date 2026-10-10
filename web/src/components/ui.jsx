@@ -44,6 +44,7 @@ const statusStyles = {
   chunking: "bg-warn-soft text-warn",
   embedding: "bg-warn-soft text-warn",
   failed: "bg-danger-soft text-danger",
+  superseded: "bg-rule-soft text-muted",
   reupload_required: "bg-danger-soft text-danger",
 };
 
@@ -54,6 +55,7 @@ const statusLabels = {
   ready: "ready",
   failed: "failed",
   reupload_required: "re-upload needed",
+  superseded: "older version",
 };
 
 /** Statuses the backend is still working through; the UI polls these. */

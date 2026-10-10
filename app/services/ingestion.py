@@ -4,6 +4,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.models.models import Document
 from app.services import jobs, lifecycle
 from app.services.generation import llm_configured
 from app.services.rag import chunk_document, embed_texts, store_chunks
@@ -30,7 +31,7 @@ def _run(db: Session, payload: dict) -> None:
         db.commit()
         return
 
-    if lifecycle.transition(db, doc_id, lifecycle.EMBEDDING, detail=f"{len(chunks)} chunks") is None:
+    if lifecycle.transition(db, doc_id, lifecycle.EMBEDDING, detail=f"{len(chunks)} passage{'' if len(chunks) == 1 else 's'}") is None:
         return
     db.commit()
 
@@ -41,9 +42,16 @@ def _run(db: Session, payload: dict) -> None:
     # Chunks and the READY status commit together: a document is never "ready"
     # without its vectors, and never has vectors while still "embedding".
     store_chunks(db, doc_id, org_id, chunks, vectors)
-    if lifecycle.transition(db, doc_id, lifecycle.READY, num_chunks=len(chunks), error=None) is None:
+    doc = lifecycle.transition(db, doc_id, lifecycle.READY, num_chunks=len(chunks), error=None)
+    if doc is None:
         db.rollback()
         return
+    if doc.previous_version_id:
+        # The new version is searchable now; retire the old one in the same commit,
+        # so there is never a moment with neither or both versions answering.
+        previous = db.get(Document, doc.previous_version_id)
+        if previous is not None and previous.status == lifecycle.READY:
+            lifecycle.transition(db, previous.id, lifecycle.SUPERSEDED, detail=f"replaced by version {doc.version}")
     if llm_configured():
         # Same transaction as READY: a ready document always gets its summary job.
         jobs.enqueue(db, SUMMARY_KIND, {"doc_id": doc_id})

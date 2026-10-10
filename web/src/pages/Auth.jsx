@@ -60,7 +60,7 @@ export function AcceptInvitePage() {
     setError("");
     try {
       await joinWithInvite(inviteToken, password);
-      navigate("/chat", { replace: true });
+      navigate("/home", { replace: true });
     } catch (err) {
       setError(err.detail || "Couldn't accept the invite.");
     } finally {

@@ -9,13 +9,14 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_role
-from app.models.models import ConversationMessage, Document, User
+from app.models.models import ConversationMessage, Document, User, VerifiedAnswer
+from app.services import access, verified as verified_answers
 from app.models.schemas import Suggestion
 
 router = APIRouter(tags=["insights"])
@@ -42,6 +43,7 @@ def suggested_questions(user: User = Depends(get_current_user), db: Session = De
     docs = db.scalars(
         select(Document)
         .where(Document.org_id == user.org_id, Document.status == "ready", Document.suggested_questions.is_not(None))
+        .where(access.document_filter(access.scope_for(db, user).collections))
         .order_by(Document.created_at.desc())
         .limit(6)
     ).all()
@@ -122,17 +124,36 @@ def workspace_insights(days: int = 30, user: User = Depends(require_role("ADMIN"
         select(func.count()).select_from(Document).where(Document.org_id == user.org_id, Document.status == "ready")
     ) or 0
 
+    live_docs = db.scalars(select(Document).where(Document.org_id == user.org_id, Document.status == "ready")
+                           .order_by(Document.created_at)).all()
+    stale_before = now - timedelta(days=365)
+    stale_documents = [
+        {"id": d.id, "filename": d.filename, "updated_at": d.updated_at or d.created_at}
+        for d in live_docs if _utc(d.updated_at or d.created_at) < stale_before
+    ][:10]
+    open_conflicts = [
+        {"id": d.id, "filename": d.filename, "conflicts": json.loads(d.conflicts)}
+        for d in live_docs if d.conflicts and not d.conflicts_state and json.loads(d.conflicts)
+    ]
+    verified = [
+        {"id": v.id, "question": v.question, "created_at": v.created_at, **verified_answers.describe(db, v),
+         "current": verified_answers.usable(db, access.Scope(user.org_id, None), v)}
+        for v in db.scalars(select(VerifiedAnswer).where(VerifiedAnswer.org_id == user.org_id)
+                            .order_by(VerifiedAnswer.created_at.desc()))
+    ]
+
     total = len(answers)
     return {
         "days": days,
         "totals": {
             "questions": total,
-            "answered": kinds.get("answered", 0),
+            "answered": kinds.get("answered", 0) + kinds.get("verified", 0),
+            "verified_reused": kinds.get("verified", 0),
             "not_in_documents": kinds.get("abstained", 0) + kinds.get("no_sources", 0),
             "degraded": kinds.get("fallback", 0),
             "helpful": feedback.get(1, 0),
             "not_helpful": feedback.get(-1, 0),
-            "answer_rate": round(kinds.get("answered", 0) / total, 3) if total else None,
+            "answer_rate": round((kinds.get("answered", 0) + kinds.get("verified", 0)) / total, 3) if total else None,
             "documents_ready": documents_ready,
         },
         "daily": daily,
@@ -140,7 +161,19 @@ def workspace_insights(days: int = 30, user: User = Depends(require_role("ADMIN"
         "knowledge_gaps": knowledge_gaps,
         "top_documents": top_documents,
         "unhelpful_answers": unhelpful,
+        "stale_documents": stale_documents,
+        "open_conflicts": open_conflicts,
+        "verified_answers": verified,
     }
+
+
+@router.delete("/verified/{verified_id}", status_code=204)
+def remove_verified(verified_id: str, user: User = Depends(require_role("ADMIN")), db: Session = Depends(get_db)):
+    entry = db.get(VerifiedAnswer, verified_id)
+    if entry is None or entry.org_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(entry)
+    db.commit()
 
 
 def _utc(value: datetime) -> datetime:
@@ -157,14 +190,17 @@ def home(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
     is_admin = role_rank(user.role) >= role_rank("ADMIN")
     docs = db.scalars(
-        select(Document).where(Document.org_id == user.org_id).order_by(Document.created_at.desc())
+        select(Document).where(Document.org_id == user.org_id, Document.status != "superseded")
+        .where(access.document_filter(access.scope_for(db, user).collections))
+        .order_by(Document.created_at.desc())
     ).all()
     recent = [
         {"id": d.id, "filename": d.filename, "status": d.status, "created_at": d.created_at,
          "summary": _plain_snippet(d.summary or "", 160) if d.summary else None}
         for d in docs[:5]
     ]
-    conflicts = [d.filename for d in docs if d.conflicts and json.loads(d.conflicts or "[]")]
+    conflicts = [d.filename for d in docs
+                 if d.status == "ready" and not d.conflicts_state and json.loads(d.conflicts or "[]")]
     failed = [d.filename for d in docs if d.status in ("failed", "reupload_required")]
     processing = sum(1 for d in docs if d.status in ("queued", "chunking", "embedding"))
 

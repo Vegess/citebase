@@ -26,7 +26,9 @@ from app.models.schemas import (
     ConversationOut,
     FeedbackRequest,
 )
-from app.services import metrics
+from app.core.security import require_role
+from app.models.models import VerifiedAnswer
+from app.services import access, audit, metrics, verified as verified_answers
 from app.services.answer_plan import AnswerPlan, plan_answer
 from app.services.research_agent import collect, run_research, should_research
 from app.services.citations import looks_like_abstention, normalize_markers, select_citations
@@ -163,6 +165,28 @@ def delete_conversation(conversation_id: str, user: User = Depends(get_current_u
     return {"deleted": True}
 
 
+def _save_verified_turn(db: Session, user: User, conversation: Conversation | None, question: str,
+                        hit: VerifiedAnswer) -> tuple[ConversationMessage, list[dict]]:
+    """Record a reused verified answer like any other turn (no model call, no quota)."""
+    if conversation is None:
+        conversation = Conversation(org_id=user.org_id, user_id=user.id, title=DEFAULT_TITLE)
+        db.add(conversation)
+        db.flush()
+    _name_if_untitled(conversation, question)
+    db.add(ConversationMessage(conversation_id=conversation.id, org_id=user.org_id, user_id=user.id,
+                               role="user", content=question))
+    db.flush()
+    citations = json.loads(hit.citations or "[]")
+    assistant = ConversationMessage(
+        conversation_id=conversation.id, org_id=user.org_id, user_id=user.id, role="assistant",
+        content=hit.answer, citations=json.dumps(citations), answer_kind="verified", answer_mode="verified",
+    )
+    db.add(assistant)
+    conversation.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return assistant, citations
+
+
 @router.post("/ask", response_model=AskResponse)
 @limiter.limit("20/minute", key_func=_user_ip_key)
 def ask(
@@ -174,13 +198,19 @@ def ask(
     start = time.perf_counter()
     conversation = _ensure_conversation(body, user, db)
     history = _load_history(conversation, db)
+    scope = access.scope_for(db, user)
+    hit = verified_answers.find(db, scope, body.question)
+    if hit is not None:
+        assistant, used = _save_verified_turn(db, user, conversation, body.question, hit)
+        return AskResponse(answer=hit.answer, citations=[Citation(**c) for c in used], message_id=assistant.id,
+                           answer_kind="verified", verified=verified_answers.describe(db, hit))
     reserve_question(db, user.id, org_id=user.org_id)
     steps = None
     if should_research(body.question, body.mode):
-        steps, research = collect(run_research(db, user.org_id, body.question, history))
+        steps, research = collect(run_research(db, user.org_id, body.question, history, scope.collections))
         plan = AnswerPlan("research", research.chunks, research.note, None, [])
     else:
-        plan = plan_answer(db, user.org_id, body.question, history)
+        plan = plan_answer(db, user.org_id, body.question, history, scope.collections)
     chunks = plan.chunks
     metrics.record_chat(len(chunks))
 
@@ -255,8 +285,24 @@ def ask_stream(
     org_id = user.org_id
     conversation = _ensure_conversation(body, user, db)
     history = _load_history(conversation, db)
+    scope = access.scope_for(db, user)
+    collections = scope.collections
+
+    hit = verified_answers.find(db, scope, body.question)
+    if hit is not None:
+        assistant, used = _save_verified_turn(db, user, conversation, body.question, hit)
+        meta = {"message_id": assistant.id, "answer_kind": "verified", "verified": verified_answers.describe(db, hit)}
+
+        def verified_events():
+            yield f"data: {json.dumps({'text': hit.answer})}\n\n"
+            yield f"data: {json.dumps({'citations': used})}\n\n"
+            yield f"data: {json.dumps(meta)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(verified_events(), media_type="text/event-stream")
+
     research = should_research(body.question, body.mode)
-    plan = None if research else plan_answer(db, org_id, body.question, history)
+    plan = None if research else plan_answer(db, org_id, body.question, history, collections)
     reserve_question(db, user_id, org_id=org_id)
 
     if conversation is None:
@@ -310,7 +356,7 @@ def ask_stream(
             stream = None
             if plan is None:
                 # Research mode: show each step as it happens, then answer.
-                agent = run_research(local_db, org_id, body.question, history)
+                agent = run_research(local_db, org_id, body.question, history, collections)
                 steps = []
                 while True:
                     try:
@@ -382,3 +428,41 @@ def rate_answer(message_id: str, body: FeedbackRequest, user: User = Depends(get
     message.feedback = body.value or None
     db.commit()
     return {"feedback": message.feedback}
+
+
+@router.post("/messages/{message_id}/verify", status_code=201)
+def verify_answer(message_id: str, user: User = Depends(require_role("ADMIN")), db: Session = Depends(get_db)):
+    """Approve one of your own answers. The same question (ignoring case and
+    punctuation) then gets this answer instantly, marked as verified."""
+    message = db.get(ConversationMessage, message_id)
+    if (message is None or message.org_id != user.org_id or message.user_id != user.id
+            or message.role != "assistant"):
+        raise HTTPException(status_code=404, detail="Message not found")
+    citations = json.loads(message.citations or "[]")
+    if not citations or any(not c.get("doc_id") for c in citations):
+        raise HTTPException(status_code=400, detail="Only answers with sources can be verified.")
+    question_msg = db.scalars(
+        select(ConversationMessage)
+        .where(ConversationMessage.conversation_id == message.conversation_id, ConversationMessage.role == "user",
+               ConversationMessage.created_at <= message.created_at)
+        .order_by(ConversationMessage.created_at.desc())
+    ).first()
+    if question_msg is None:
+        raise HTTPException(status_code=400, detail="Couldn't find the question for this answer.")
+    key = verified_answers.question_key(question_msg.content)
+    entry = db.scalar(select(VerifiedAnswer).where(VerifiedAnswer.org_id == user.org_id,
+                                                   VerifiedAnswer.question_key == key))
+    if entry is None:
+        entry = VerifiedAnswer(org_id=user.org_id, question_key=key)
+        db.add(entry)
+    entry.question = question_msg.content.strip()
+    entry.answer = message.content
+    entry.citations = json.dumps(citations)
+    entry.verified_by = user.id
+    entry.source_message_id = message.id
+    entry.created_at = datetime.now(timezone.utc)
+    db.flush()
+    audit.record(db, org_id=user.org_id, actor_id=user.id, action="answer.verified", target_type="verified_answer",
+                 target_id=entry.id, details={"question": entry.question[:120]})
+    db.commit()
+    return {"id": entry.id, "question": entry.question}

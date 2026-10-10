@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.models import Document, DocumentChunk
-from app.services import rag
+from app.services import access, rag
 
 settings = get_settings()
 
@@ -78,11 +78,12 @@ def match_documents_by_name(question: str, docs: list[Document]) -> list[Documen
     return [d for score, d in scored if score == best]
 
 
-def _ready_documents(db: Session, org_id: str) -> list[Document]:
+def _ready_documents(db: Session, org_id: str, collections: tuple[str, ...] | None = None) -> list[Document]:
     return list(
         db.scalars(
             select(Document)
             .where(Document.org_id == org_id, Document.status == "ready")
+            .where(access.document_filter(collections))
             .order_by(Document.created_at.desc())
         )
     )
@@ -131,8 +132,10 @@ def _whole_document_chunks(db: Session, doc: Document, question: str, budget: in
     return [keep[i] for i in sorted(keep)], False
 
 
-def plan_answer(db: Session, org_id: str, question: str, history: list[dict] | None = None) -> AnswerPlan:
-    docs = _ready_documents(db, org_id)
+def plan_answer(db: Session, org_id: str, question: str, history: list[dict] | None = None,
+                collections: tuple[str, ...] | None = None) -> AnswerPlan:
+    """`collections`: what the asker may see (services/access.py); None = everything."""
+    docs = _ready_documents(db, org_id, collections)
     named = match_documents_by_name(question, docs)
     query = retrieval_query(question, history)
 
@@ -144,7 +147,7 @@ def plan_answer(db: Session, org_id: str, question: str, history: list[dict] | N
         elif len(docs) == 1:
             targets = docs
         else:
-            hits = rag.retrieve_chunks(org_id, query, top_k=1, db=db)
+            hits = rag.retrieve_chunks(org_id, query, top_k=1, db=db, collections=collections)
             targets = [d for d in docs if hits and d.id == hits[0]["doc_id"]]
         targets = targets[:3]
 
@@ -167,7 +170,8 @@ def plan_answer(db: Session, org_id: str, question: str, history: list[dict] | N
                               [d.filename for d in targets])
 
     doc_ids = [d.id for d in named] if named else None
-    chunks = rag.retrieve_chunks(org_id, query, top_k=settings.retrieval_top_k, db=db, doc_ids=doc_ids)
+    chunks = rag.retrieve_chunks(org_id, query, top_k=settings.retrieval_top_k, db=db, doc_ids=doc_ids,
+                                 collections=collections)
     if doc_ids and not chunks:  # the name matched but nothing relevant inside: search everything
-        chunks = rag.retrieve_chunks(org_id, query, top_k=settings.retrieval_top_k, db=db)
+        chunks = rag.retrieve_chunks(org_id, query, top_k=settings.retrieval_top_k, db=db, collections=collections)
     return AnswerPlan("question", chunks, None, None, [d.filename for d in named])
