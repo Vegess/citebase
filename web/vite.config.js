@@ -23,6 +23,13 @@ export default defineConfig({
       "/chat": api,
       "/documents": api,
       "/me": api,
+      "/org": api,
+      "/collections": api,
+      "/account": api,
+      "/insights": api,
+      "/home": api,
+      "/verified": api,
+      "/ping": api,
     },
   },
 });

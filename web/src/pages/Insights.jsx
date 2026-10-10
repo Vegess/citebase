@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, EmptyState, useToast } from "../components/ui";
+import { Button, EmptyState, LoadError, useToast } from "../components/ui";
 
 const RANGES = [7, 30, 90];
 
@@ -67,11 +67,14 @@ export default function InsightsPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setData(null);
-    api.getInsights(token, days).then(setData).catch((err) => notify(err.detail || "Couldn't load insights."));
-  }, [token, days, notify]);
+    setFailed(false);
+    api.getInsights(token, days).then(setData).catch(() => setFailed(true));
+  }, [token, days, attempt]);
 
   const reload = () => api.getInsights(token, days).then(setData).catch(() => {});
   async function review(id, state) {
@@ -119,7 +122,11 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      {!data ? (
+      {!data && failed ? (
+        <div className="mt-8">
+          <LoadError onRetry={() => setAttempt((n) => n + 1)} />
+        </div>
+      ) : !data ? (
         <div className="mt-8 grid gap-3 sm:grid-cols-4">
           {[0, 1, 2, 3].map((i) => <div key={i} className="h-24 rounded-lg border border-rule bg-surface pulse-soft" />)}
         </div>

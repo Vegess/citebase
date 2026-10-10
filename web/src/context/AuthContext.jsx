@@ -50,7 +50,9 @@ export function AuthProvider({ children }) {
     async (accessToken) => {
       setToken(accessToken);
       writeHint(true);
-      api.startSession(accessToken).catch(() => {
+      // Awaited, so the cookie is in place before any request could need a refresh
+      // (after a password change the old cookie is already revoked).
+      await api.startSession(accessToken).catch(() => {
         /* the app still works for this tab; it just won't survive a refresh */
       });
       await loadUser(accessToken);

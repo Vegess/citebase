@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, IN_PROGRESS, StatusBadge, useToast } from "../components/ui";
+import { Button, IN_PROGRESS, LoadError, StatusBadge, useToast } from "../components/ui";
 import { Icon } from "../components/icons";
 
 const EVENT_LABEL = {
@@ -36,6 +36,7 @@ export default function DocumentDetailPage() {
   const navigate = useNavigate();
   const [detail, setDetail] = useState(null);
   const [missing, setMissing] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [collections, setCollections] = useState([]);
   const [busy, setBusy] = useState(false);
   const versionInput = useRef(null);
@@ -46,11 +47,12 @@ export default function DocumentDetailPage() {
       const [d, c] = await Promise.all([api.getDocumentDetail(token, id), api.listCollections(token)]);
       setDetail(d);
       setCollections(c.collections);
+      setFailed(false);
     } catch (err) {
       if (err.status === 404) setMissing(true);
-      else notify(err.detail || "Couldn't load this document.");
+      else setFailed(true);
     }
-  }, [token, id, notify]);
+  }, [token, id]);
 
   useEffect(() => {
     setDetail(null);
@@ -75,6 +77,13 @@ export default function DocumentDetailPage() {
         <Link to="/documents" className="mt-4 inline-block text-sm text-signal">
           Back to documents
         </Link>
+      </main>
+    );
+  }
+  if (!detail && failed) {
+    return (
+      <main className="mx-auto max-w-5xl px-5 py-10">
+        <LoadError onRetry={load} />
       </main>
     );
   }

@@ -1,4 +1,4 @@
-"""DocuMind — company docs RAG assistant.
+"""Citebase (formerly DocuMind) — answers from company documents, with sources.
 
 Run locally:
     uvicorn app.main:app --reload
@@ -83,7 +83,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="DocuMind",
+    title="Citebase",
     version="0.1.0",
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,

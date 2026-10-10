@@ -1,6 +1,6 @@
 Northwind Freight Pvt. Ltd. — IT Security Policy
 
-Fictional demo data for DocuMind.
+Fictional demo data for Citebase.
 
 1. Passwords
 Passwords must be at least 12 characters long and must not be reused across systems. Passwords are changed only when there is a reason to believe they were exposed; there is no forced periodic change.

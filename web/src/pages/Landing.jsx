@@ -289,12 +289,20 @@ export default function LandingPage() {
               </a>
             ))}
             <div className="mt-3 flex gap-2 sm:hidden">
-              <button type="button" onClick={() => { setMenuOpen(false); setAuth("signin"); }} className="flex-1 rounded-md border border-rule py-2 text-sm font-medium">
-                Log in
-              </button>
-              <button type="button" onClick={() => { setMenuOpen(false); setAuth("signup"); }} className="flex-1 rounded-md bg-signal py-2 text-sm font-semibold text-white">
-                Join for free
-              </button>
+              {isAuthed ? (
+                <Link to="/home" className="flex-1 rounded-md bg-signal py-2 text-center text-sm font-semibold text-white">
+                  Open Citebase
+                </Link>
+              ) : (
+                <>
+                  <button type="button" onClick={() => { setMenuOpen(false); setAuth("signin"); }} className="flex-1 rounded-md border border-rule py-2 text-sm font-medium">
+                    Log in
+                  </button>
+                  <button type="button" onClick={() => { setMenuOpen(false); setAuth("signup"); }} className="flex-1 rounded-md bg-signal py-2 text-sm font-semibold text-white">
+                    Join for free
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

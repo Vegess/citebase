@@ -140,3 +140,43 @@ export function ResetPasswordPage() {
     </Shell>
   );
 }
+
+export function VerifyEmailPage() {
+  const tokenRef = useRef(null);
+  const [state, setState] = useState({ status: "checking" });
+
+  useEffect(() => {
+    if (tokenRef.current !== null) return;
+    tokenRef.current = window.location.hash.slice(1);
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!tokenRef.current) {
+      setState({ status: "invalid" });
+      return;
+    }
+    api
+      .confirmEmail(tokenRef.current)
+      .then((r) => setState({ status: "done", email: r.email }))
+      .catch(() => setState({ status: "invalid" }));
+  }, []);
+
+  return (
+    <Shell title="Confirm your email">
+      {state.status === "checking" && <p className="mt-3 text-sm text-muted">Confirming…</p>}
+      {state.status === "done" && (
+        <p className="mt-3 text-sm text-ink-soft">
+          <span className="font-medium text-ink">{state.email}</span> is confirmed. You can now invite teammates.
+        </p>
+      )}
+      {state.status === "invalid" && (
+        <p className="mt-3 text-sm text-ink-soft">
+          This link is invalid, already used, or expired. Send a new one from Settings.
+        </p>
+      )}
+      <p className="mt-5 text-sm">
+        <Link to="/home" className="text-signal">
+          Go to Citebase
+        </Link>
+      </p>
+    </Shell>
+  );
+}

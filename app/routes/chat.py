@@ -144,7 +144,7 @@ def get_conversation(conversation_id: str, user: User = Depends(get_current_user
                 role=msg.role,
                 content=msg.content,
                 citations=[
-                    Citation(filename=c["filename"], chunk_index=c["chunk_index"], n=c.get("n"))
+                    Citation(filename=c["filename"], chunk_index=c["chunk_index"], n=c.get("n"), doc_id=c.get("doc_id"))
                     for c in json.loads(msg.citations)
                 ] if msg.citations else None,
                 answer_kind=msg.answer_kind,
@@ -222,7 +222,7 @@ def ask(
         release_question(db, user.id, org_id=user.org_id)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="The demo is busy right now. Please try again in a moment.",
+            detail="Citebase is busy right now. Please try again in a moment.",
             headers={"Retry-After": "2"},
         )
 
@@ -330,7 +330,7 @@ def ask_stream(
             db.commit()
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="The demo is busy right now. Please try again in a moment.",
+                detail="Citebase is busy right now. Please try again in a moment.",
                 headers={"Retry-After": "2"},
             )
 
@@ -439,8 +439,8 @@ def verify_answer(message_id: str, user: User = Depends(require_role("ADMIN")), 
             or message.role != "assistant"):
         raise HTTPException(status_code=404, detail="Message not found")
     citations = json.loads(message.citations or "[]")
-    if not citations or any(not c.get("doc_id") for c in citations):
-        raise HTTPException(status_code=400, detail="Only answers with sources can be verified.")
+    if message.answer_kind != "answered" or not citations or any(not c.get("doc_id") for c in citations):
+        raise HTTPException(status_code=400, detail="Only complete answers with sources can be verified.")
     question_msg = db.scalars(
         select(ConversationMessage)
         .where(ConversationMessage.conversation_id == message.conversation_id, ConversationMessage.role == "user",

@@ -178,6 +178,7 @@ class InviteOut(BaseModel):
 class InviteCreated(InviteOut):
     # Returned exactly once. Only its hash is stored, so it cannot be shown again.
     token: str
+    emailed: bool = False
 
 
 class InvitePreview(BaseModel):

@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
-import { AppLayout, FullPageNote, GuestOnly, ProtectedRoute } from "./components/Chrome";
+import { AdminOnly, AppLayout, FullPageNote, GuestOnly, ProtectedRoute } from "./components/Chrome";
 import { AuthPage } from "./components/AuthPanel";
 import LandingPage from "./pages/Landing";
 import { QuickAsk } from "./components/QuickAsk";
@@ -20,6 +20,7 @@ const ChatPage = lazy(() => import("./pages/Chat"));
 const TeamPage = lazy(() => import("./pages/Team"));
 const InsightsPage = lazy(() => import("./pages/Insights"));
 const ForgotPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ForgotPasswordPage })));
+const VerifyEmailPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.VerifyEmailPage })));
 const ResetPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ResetPasswordPage })));
 const AcceptInvitePage = lazy(() => import("./pages/Auth").then((m) => ({ default: m.AcceptInvitePage })));
 
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="/signup" element={<GuestOnly><AuthPage mode="signup" /></GuestOnly>} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/invite" element={<AcceptInvitePage />} />
@@ -55,8 +57,8 @@ export default function App() {
               <Route path="/chat" element={<InApp><ChatPage /></InApp>} />
               <Route path="/documents" element={<InApp><DocumentsPage /></InApp>} />
               <Route path="/documents/:id" element={<InApp><DocumentDetailPage /></InApp>} />
-              <Route path="/insights" element={<InApp><InsightsPage /></InApp>} />
-              <Route path="/team" element={<InApp><TeamPage /></InApp>} />
+              <Route path="/insights" element={<InApp><AdminOnly><InsightsPage /></AdminOnly></InApp>} />
+              <Route path="/team" element={<InApp><AdminOnly><TeamPage /></AdminOnly></InApp>} />
               <Route path="/settings" element={<InApp><SettingsPage /></InApp>} />
 
               <Route path="*" element={<Navigate to="/" replace />} />

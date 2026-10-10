@@ -5,6 +5,7 @@ import * as api from "../lib/api";
 import { Button, EmptyState, IN_PROGRESS, StatusBadge, useToast } from "../components/ui";
 import { DemoBanner } from "../components/DemoBanner";
 import { Icon } from "../components/icons";
+import { useDialog } from "../hooks/useDialog";
 
 const POLL_MS = 2000;
 const ALL = "__all__";
@@ -32,11 +33,7 @@ function CollectionModal({ collection, onClose, onSaved }) {
     api.listMembers(token).then((m) => setPeople(m.filter((p) => p.is_active))).catch(() => setPeople([]));
   }, [token]);
 
-  useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
 
   async function save(e) {
     e.preventDefault();
@@ -70,7 +67,7 @@ function CollectionModal({ collection, onClose, onSaved }) {
     });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 px-4 py-10" role="dialog"
+    <div ref={dialog} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 px-4 py-10" role="dialog"
       aria-modal="true" aria-label="Collection" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form onSubmit={save} className="w-full max-w-lg rounded-xl bg-surface p-6 shadow-2xl">
         <h2 className="font-display text-2xl text-ink">{collection ? "Collection settings" : "New collection"}</h2>
@@ -248,6 +245,8 @@ export default function DocumentsPage() {
     <button
       key={key}
       type="button"
+      role="tab"
+      aria-selected={active === key}
       onClick={() => setActive(key)}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${
         active === key ? "border-ink bg-ink text-paper" : "border-rule bg-surface text-ink-soft hover:border-ink/40"

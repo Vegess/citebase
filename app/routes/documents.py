@@ -20,8 +20,8 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_role, role_rank
 from app.models.models import Collection, Document, DocumentChunk, DocumentEvent, User
 from app.models.schemas import DocumentEventOut, DocumentOut
-from app.routes.chat import limiter
-from app.services import access, audit, extract, ingestion, jobs, lifecycle
+from app.routes.chat import _user_ip_key, limiter
+from app.services import access, audit, conflicts, extract, ingestion, jobs, lifecycle
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 settings = get_settings()
@@ -52,7 +52,7 @@ def _schedule(background_tasks: BackgroundTasks) -> None:
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
-@limiter.limit("20/minute", key_func=lambda request: f"{get_remote_address(request)}:{request.headers.get('authorization', '').split('Bearer ', 1)[-1][:32]}")
+@limiter.limit("20/minute", key_func=_user_ip_key)
 def upload_document(
     request: Request,
     file: UploadFile,
@@ -244,9 +244,13 @@ def upload_new_version(doc_id: str, file: UploadFile, background_tasks: Backgrou
     current = _own_doc_or_404(db, doc_id, user)
     if not _can_manage(user, current):
         raise HTTPException(status_code=403, detail="Only the uploader or an admin can upload a new version.")
+    text, truncated = _read_upload(file)
+    # Lock the current version so two uploads at once can't both become "next".
+    current = db.scalar(select(Document).where(Document.id == current.id).with_for_update())
     if current.status == lifecycle.SUPERSEDED:
         raise HTTPException(status_code=409, detail="This is an older version. Upload to the current one.")
-    text, truncated = _read_upload(file)
+    if db.scalar(select(Document.id).where(Document.previous_version_id == current.id)) is not None:
+        raise HTTPException(status_code=409, detail="A newer version is already being processed. Open it instead.")
     return _create_document(db, user, _sanitize_filename(file.filename), text, truncated, background_tasks,
                             previous=current)
 
@@ -287,8 +291,13 @@ def move_document(doc_id: str, body: MoveDocument, user: User = Depends(require_
     target = body.collection_id or None
     if not access.can_use_collection(db, user, target):
         raise HTTPException(status_code=404, detail="Collection not found")
-    for version in _version_chain(db, doc):  # versions move together
+    chain = _version_chain(db, doc)
+    for version in chain:  # versions move together
         version.collection_id = target
+    # Warnings on these files quote other files, and other files' warnings may
+    # quote these: both were computed for the old audience, so check again.
+    names = {v.filename for v in chain}
+    conflicts.recheck(db, chain + [d for d in conflicts.mentioning(db, user.org_id, names) if d not in chain])
     audit.record(db, org_id=user.org_id, actor_id=user.id, action="document.moved", target_type="document",
                  target_id=doc.id, details={"filename": doc.filename, "collection_id": target})
     db.commit()

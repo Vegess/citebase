@@ -47,7 +47,7 @@ _RESEARCH = re.compile(
     re.IGNORECASE,
 )
 
-SYSTEM = """You are the research planner for DocuMind, a company-document assistant.
+SYSTEM = """You are the research planner for Citebase, a company-document assistant.
 You do NOT write the final answer. You decide which searches to run so that a
 later step can answer the user's question from the evidence you collect.
 

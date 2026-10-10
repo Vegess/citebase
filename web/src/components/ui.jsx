@@ -125,3 +125,16 @@ export function useToast() {
   if (!ctx) throw new Error("useToast must be used inside <ToastProvider>");
   return ctx;
 }
+
+/** Shown instead of an endless loading placeholder when a page fails to load. */
+export function LoadError({ onRetry, children = "This page couldn't load." }) {
+  return (
+    <div className="rounded-xl border border-rule bg-surface px-6 py-10 text-center">
+      <p className="text-sm text-ink">{children}</p>
+      <p className="mt-1 text-xs text-muted">The server may be waking up. Give it a moment.</p>
+      <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  );
+}

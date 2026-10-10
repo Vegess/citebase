@@ -1,4 +1,6 @@
-"""Single-use password-reset tokens: random, stored as SHA-256, valid for 1 hour."""
+"""Single-use tokens sent by email or handed out by an admin: random, stored
+as SHA-256, valid for 1 hour. `via` says what a token is for:
+"email"/"admin" choose a new password, "verify" confirms an email address."""
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -23,17 +25,17 @@ def create(db: Session, user: User, via: str, created_by: str | None = None) -> 
     return raw
 
 
-def peek(db: Session, raw: str) -> PasswordReset | None:
+def peek(db: Session, raw: str, purposes: tuple[str, ...] = ("email", "admin")) -> PasswordReset | None:
     reset = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == _hash(raw)))
-    if reset is None or reset.used_at is not None:
+    if reset is None or reset.used_at is not None or reset.via not in purposes:
         return None
     expires = reset.expires_at if reset.expires_at.tzinfo else reset.expires_at.replace(tzinfo=timezone.utc)
     return reset if expires > datetime.now(timezone.utc) else None
 
 
-def consume(db: Session, raw: str) -> PasswordReset | None:
+def consume(db: Session, raw: str, purposes: tuple[str, ...] = ("email", "admin")) -> PasswordReset | None:
     """Mark the token used, atomically: two concurrent requests can't both use it."""
-    reset = peek(db, raw)
+    reset = peek(db, raw, purposes)
     if reset is None:
         return None
     claimed = db.execute(

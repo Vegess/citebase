@@ -243,3 +243,110 @@ def test_document_detail_shows_history_and_uploader(app_client):
     detail = app_client.get(f"/documents/{doc['id']}/detail", headers=owner).json()
     assert detail["uploaded_by_email"] == "o@acme.com" and detail["can_manage"] is True
     assert [e["to_status"] for e in detail["events"]][-1] == "ready"
+
+
+# ---- Email delivery ----
+
+def test_with_email_on_reset_links_go_to_the_member_not_the_admin(app_client, monkeypatch):
+    from app.services import mailer
+
+    sent = []
+    monkeypatch.setattr(mailer, "enabled", lambda: True)
+    monkeypatch.setattr(mailer, "send", lambda to, subject, text: sent.append((to, subject, text)) or True)
+    owner = _signup(app_client)
+    # Sign-up sends a confirmation link; inviting needs a confirmed address.
+    assert sent[-1][0] == "o@acme.com" and "/verify-email#" in sent[-1][2]
+    blocked = app_client.post("/org/invites", headers=owner, json={"email": "m@acme.com", "role": "MEMBER"})
+    assert blocked.status_code == 403
+    verify_token = sent[-1][2].split("/verify-email#", 1)[1].split()[0]
+    assert app_client.post("/auth/password-reset", json={"token": verify_token, "password": "hijack123"}).status_code == 400
+    assert app_client.post("/auth/verify-email", json={"token": verify_token}).json() == {"email": "o@acme.com"}
+    assert app_client.post("/auth/verify-email", json={"token": verify_token}).status_code == 400  # single use
+    invite = app_client.post("/org/invites", headers=owner, json={"email": "m@acme.com", "role": "MEMBER"}).json()
+    assert invite["emailed"] is True and sent[-1][0] == "m@acme.com" and invite["token"] in sent[-1][2]
+    app_client.post("/auth/accept-invite", json={"token": invite["token"], "password": PASSWORD})
+    mid = next(m["id"] for m in app_client.get("/org/members", headers=owner).json() if m["email"] == "m@acme.com")
+
+    resp = app_client.post(f"/org/members/{mid}/reset-link", headers=owner).json()
+    assert resp == {"sent": True, "email": "m@acme.com"}  # no URL for the admin
+    to, _, text = sent[-1]
+    token = text.split("/reset-password#", 1)[1].split()[0]
+    access = app_client.post("/auth/password-reset", json={"token": token, "password": "newpass123"}).json()["access_token"]
+    # Reading the inbox proves the address, so this reset also verifies it.
+    assert app_client.get("/account", headers={"Authorization": f"Bearer {access}"}).json()["email_verified"] is True
+
+
+def test_brevo_request_shape(monkeypatch):
+    from app.services import mailer
+
+    calls = []
+
+    class Resp:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(mailer.settings, "brevo_api_key", "key")
+    monkeypatch.setattr(mailer.settings, "mail_from", "Citebase <me@gmail.com>")
+    monkeypatch.setattr(mailer.httpx, "post", lambda url, **kw: calls.append((url, kw)) or Resp())
+    assert mailer.send("a@b.com", "Hi", "Body") is True
+    url, kw = calls[0]
+    assert url == "https://api.brevo.com/v3/smtp/email" and kw["headers"]["api-key"] == "key"
+    assert kw["json"]["sender"] == {"name": "Citebase", "email": "me@gmail.com"} and kw["json"]["to"] == [{"email": "a@b.com"}]
+
+
+
+def test_verification_without_email_configured(app_client):
+    owner = _signup(app_client)
+    assert app_client.post("/account/verify-email", headers=owner).status_code == 503
+    # Invites still work while email is off (admins share links by hand).
+    assert app_client.post("/org/invites", headers=owner, json={"email": "m@acme.com", "role": "MEMBER"}).status_code == 201
+
+
+def test_two_new_versions_at_once_are_refused(app_client):
+    owner = _signup(app_client)
+    v1 = _upload(app_client, owner, "leave.txt", "Annual leave is 18 days.")
+    import app.core.database as database
+    from app.models.models import Document
+    with database.SessionLocal() as db:  # simulate v2 still processing
+        db.add(Document(org_id=db.get(Document, v1["id"]).org_id, uploaded_by=v1["uploaded_by"], filename="leave.txt",
+                        status="queued", version=2, previous_version_id=v1["id"]))
+        db.commit()
+    again = app_client.post(f"/documents/{v1['id']}/versions", headers=owner,
+                            files={"file": ("leave.txt", io.BytesIO(b"Annual leave is 30 days."), "text/plain")})
+    assert again.status_code == 409
+
+
+def test_moving_a_document_clears_warnings_that_quote_other_files(app_client):
+    import app.core.database as database
+    from app.models.models import Document
+
+    owner, hr, staff, col, salary, handbook = _setup_hr(app_client)
+    with database.SessionLocal() as db:
+        row = db.get(Document, salary["id"])
+        row.conflicts = json.dumps([{"topic": "Pay", "this_says": "90000", "other_file": "x.txt", "other_says": "80000"}])
+        db.commit()
+    app_client.patch(f"/documents/{salary['id']}", headers=owner, json={"collection_id": None})
+    assert app_client.get(f"/documents/{salary['id']}", headers=staff).json()["conflicts"] is None
+
+
+def test_only_complete_answers_can_be_verified(app_client):
+    import app.core.database as database
+    from app.models.models import ConversationMessage
+
+    owner = _signup(app_client)
+    _upload(app_client, owner, "h.txt", "Notice is 30 days.")
+    first = app_client.post("/chat/ask", headers=owner, json={"question": "notice?"}).json()
+    with database.SessionLocal() as db:
+        db.get(ConversationMessage, first["message_id"]).answer_kind = "fallback"
+        db.commit()
+    assert app_client.post(f"/chat/messages/{first['message_id']}/verify", headers=owner).status_code == 400
+
+
+def test_reloaded_conversation_keeps_document_ids(app_client):
+    owner = _signup(app_client)
+    _upload(app_client, owner, "h.txt", "Notice is 30 days.")
+    first = app_client.post("/chat/ask", headers=owner, json={"question": "notice?"}).json()
+    convs = app_client.get("/chat/conversations", headers=owner).json()
+    detail = app_client.get(f"/chat/conversations/{convs[0]['id']}", headers=owner).json()
+    assistant = [m for m in detail["messages"] if m["role"] == "assistant"][0]
+    assert assistant["citations"][0]["doc_id"] == first["citations"][0]["doc_id"]

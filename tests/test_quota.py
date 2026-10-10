@@ -26,7 +26,7 @@ def test_global_cap_blocks_71st_question(app_client, monkeypatch):
             quota.reserve_question(db, "user-2")
 
         assert error.value.status_code == 429
-        assert "daily AI quota" in error.value.detail
+        assert "daily AI limit" in error.value.detail
         assert error.value.headers["Retry-After"]
     finally:
         db.close()

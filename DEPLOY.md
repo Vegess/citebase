@@ -119,9 +119,28 @@ cookie is first-party. If your API URL is not `https://documind-intel.onrender.c
 change the `destination` in `web/vercel.json`. On the API, `FRONTEND_URL` must be
 your real frontend URL (it decides the cookie's `Secure` flag and reset links).
 
-Optional, for "Forgot password" emails: `RESEND_API_KEY` and `MAIL_FROM`
-(e.g. `Citebase <no-reply@yourdomain.com>`; Resend needs the domain verified).
-Without them, admins create reset links from the Team page.
+### Email (invites, password resets, email confirmation)
+
+Render's free plan blocks SMTP, so email goes over HTTPS. Easiest: **Brevo**
+(free, 300 emails/day, no domain needed).
+
+1. Sign up at brevo.com → Senders, Domains & Dedicated IPs → Senders → Add a
+   sender: your address (e.g. your Gmail). Confirm the code Brevo emails you.
+2. SMTP & API → API Keys → Generate a new API key.
+3. On Render set `BREVO_API_KEY` and `MAIL_FROM=Citebase <that-address>`.
+
+(Alternatively `RESEND_API_KEY`, which needs a verified domain.)
+
+With email on: invites and admin password resets are emailed to the person
+(the admin never sees reset links), "Forgot password" works, and new password
+accounts must confirm their email before they can invite anyone. Without
+email: admins copy invite and reset links from the Team page.
+
+### Removing test workspaces before launch
+
+`scripts/purge_workspaces.sql` — run in Neon's SQL editor. Branch first
+(backup), set the emails whose workspaces to keep, run the preview, then the
+delete transaction.
 
 ## Part 2b — Google and GitHub sign-in (optional)
 

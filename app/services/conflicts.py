@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Collection, Document, DocumentChunk
 from app.services import jobs, rag
-from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete
+from app.services.generation import GroqRateLimitExceeded, LLMUnavailable, complete, llm_configured
 
 logger = logging.getLogger("app.services.conflicts")
 
@@ -124,6 +124,33 @@ def _run(db: Session, payload: dict) -> None:
     doc.conflicts, doc.conflicts_checked_at = json.dumps(conflicts), now
     db.commit()
     logger.info("Conflict check doc_id=%s conflicts=%s", doc.id, len(conflicts))
+
+
+def recheck(db: Session, docs: list[Document]) -> None:
+    """Forget stored warnings and check again. Used when who-can-see-what
+    changes (a move, a collection becoming restricted): a stored warning quotes
+    another file and must never outlive the visibility it was computed for.
+    Clearing happens in the caller's transaction, so there is no window where
+    a stale warning is visible."""
+    for doc in docs:
+        doc.conflicts, doc.conflicts_checked_at, doc.conflicts_state = None, None, None
+        if doc.status == "ready" and llm_configured():
+            jobs.enqueue(db, KIND, {"doc_id": doc.id})
+
+
+def mentioning(db: Session, org_id: str, filenames: set[str]) -> list[Document]:
+    """Documents whose stored warnings quote any of `filenames`."""
+    if not filenames:
+        return []
+    out = []
+    for doc in db.scalars(select(Document).where(Document.org_id == org_id, Document.conflicts.is_not(None))):
+        try:
+            entries = json.loads(doc.conflicts or "[]")
+        except ValueError:
+            entries = []
+        if any(e.get("other_file") in filenames for e in entries):
+            out.append(doc)
+    return out
 
 
 jobs.register(KIND, jobs.Handler(run=_run))

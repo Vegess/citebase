@@ -5,9 +5,9 @@ import remarkGfm from "remark-gfm";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
-import { DemoBanner } from "../components/DemoBanner";
 import { Icon } from "../components/icons";
 import { useConversationState } from "../hooks/useConversationState";
+import { useDialog } from "../hooks/useDialog";
 
 /**
  * Sources are the point of the product: an answer you cannot trace is an
@@ -75,14 +75,10 @@ function PassagePanel({ citation, question, onClose }) {
     };
   }, [token, citation]);
 
-  useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Source passage">
+    <div ref={dialog} className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Source passage">
       <div className="absolute inset-0 bg-ink/30" onClick={onClose} />
       <aside className="relative flex h-full w-full max-w-lg flex-col bg-surface shadow-2xl">
         <header className="flex items-start gap-3 border-b border-rule px-5 py-4">
@@ -437,12 +433,13 @@ export default function ChatPage() {
     await ask(question);
   }
 
-  async function ask(text) {
+  /** `opts.fresh`: start a new conversation (questions sent from other pages). */
+  async function ask(text, opts = {}) {
     const asked = (text || "").trim();
     if (!asked || busy || askingRef.current) return;
     askingRef.current = true;
 
-    let activeConversationId = conversationId;
+    let activeConversationId = opts.fresh ? null : conversationId;
     if (!activeConversationId) {
       try {
         const created = await api.createConversation(token);
@@ -450,9 +447,7 @@ export default function ChatPage() {
         setConversationId(created.id);
       } catch (err) {
         console.error("createConversation failed:", err);
-        const message = err.detail || err.message || "Unable to start a new conversation.";
-        const url = err.url ? ` URL=${err.url}` : "";
-        notify(`${message}${url}`);
+        notify(err.detail || "Couldn't start a new conversation. Please try again.");
         askingRef.current = false;
         setBusy(false);
         return;
@@ -463,10 +458,15 @@ export default function ChatPage() {
     setBusy(true);
     setSlowRequest(false);
     
-    // Show slow request message after 3 seconds
+    // Only if nothing at all has come back after 6 seconds is the server
+    // probably asleep. Any step or text from the stream cancels the notice.
     slowRequestTimer.current = setTimeout(() => {
       setSlowRequest(true);
-    }, 3000);
+    }, 6000);
+    const heardBack = () => {
+      clearTimeout(slowRequestTimer.current);
+      setSlowRequest(false);
+    };
 
     setMessages((m) => [
       ...m,
@@ -489,10 +489,13 @@ export default function ChatPage() {
         conversationId: activeConversationId,
         mode: deepResearch ? "research" : "auto",
         onStep: (step) => {
+          heardBack();
+          receivedAny = true; // the server is running it: never retry (that would ask twice)
           steps.push(step);
           updateLast({ steps: [...steps] });
         },
         onToken: (chunk) => {
+          heardBack();
           receivedAny = true;
           receivedText += chunk;
           updateLast({ content: receivedText });
@@ -503,7 +506,7 @@ export default function ChatPage() {
       updateLast({ streaming: false });
     } catch (err) {
       if (err?.status === 429) {
-        const detail = err.detail || "The demo is busy right now. Please try again in a moment.";
+        const detail = err.detail || "Citebase is busy right now. Please try again in a moment.";
         updateLast({ content: detail, streaming: false, quota: true });
         notify(detail, "info");
         return;
@@ -536,7 +539,7 @@ export default function ChatPage() {
         });
       } catch (fallbackErr) {
         if (fallbackErr?.status === 429) {
-          const detail = fallbackErr.detail || "The demo is busy right now. Please try again in a moment.";
+          const detail = fallbackErr.detail || "Citebase is busy right now. Please try again in a moment.";
           updateLast({ content: detail, streaming: false, quota: true });
           notify(detail, "info");
           return;
@@ -590,7 +593,7 @@ export default function ChatPage() {
     navigate(location.pathname, { replace: true, state: null });
     clearConversationId();
     setMessages([]);
-    ask(pendingAsk);
+    ask(pendingAsk, { fresh: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAsk, token]);
 
@@ -606,6 +609,7 @@ export default function ChatPage() {
   }, [freshRequest]);
 
   async function startNewConversation() {
+    if (busy) return; // switching mid-answer would lose the answer being written
     try {
       const created = await api.createConversation(token);
       setConversationId(created.id);
@@ -617,6 +621,7 @@ export default function ChatPage() {
   }
 
   async function selectConversation(id) {
+    if (busy || id === conversationId) return;
     setConversationId(id);
     setMessages([]);
   }
@@ -640,12 +645,11 @@ export default function ChatPage() {
 
   return (
     <>
-      <DemoBanner />
-      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-6xl lg:h-dvh flex-col px-5 py-5 lg:flex-row lg:gap-6">
-      <aside className="mb-4 w-full shrink-0 rounded-lg border border-rule bg-surface/80 p-3 lg:mb-0 lg:w-72">
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] min-h-0 max-w-6xl flex-1 flex-col px-4 py-4 sm:px-5 lg:h-dvh lg:flex-row lg:gap-6 lg:py-5">
+      <aside className="mb-3 max-h-36 w-full shrink-0 overflow-y-auto rounded-lg border border-rule bg-surface/80 p-3 lg:mb-0 lg:max-h-none lg:w-72">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">Conversations</h2>
-          <Button variant="secondary" size="sm" onClick={startNewConversation}>
+          <Button variant="secondary" size="sm" onClick={startNewConversation} disabled={busy}>
             New
           </Button>
         </div>
@@ -655,7 +659,11 @@ export default function ChatPage() {
               key={conversation.id}
               className={`rounded-md border p-2 text-sm ${conversation.id === conversationId ? "border-signal bg-rule-soft" : "border-rule bg-paper"}`}
             >
-              <button className="flex w-full items-start justify-between gap-2 text-left" onClick={() => selectConversation(conversation.id)}>
+              <button
+                className="flex w-full items-start justify-between gap-2 text-left disabled:cursor-wait"
+                disabled={busy}
+                onClick={() => selectConversation(conversation.id)}
+              >
                 <span className="line-clamp-2 flex-1 text-ink">{conversation.title || "New conversation"}</span>
                 <span className="text-[11px] text-muted">{new Date(conversation.updated_at).toLocaleDateString()}</span>
               </button>
@@ -692,12 +700,14 @@ export default function ChatPage() {
                 }}
               />
             ))
-          )}          {slowRequest && busy && (
+          )}
+          {slowRequest && busy && (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted">
               <span className="animate-spin">⏳</span>
-              <span>Waking up the server — this can take up to a minute on the free tier.</span>
+              <span>Still waiting for the server. After a quiet spell it can take up to a minute to wake up.</span>
             </div>
-          )}          <div ref={bottomRef} />
+          )}
+          <div ref={bottomRef} />
         </div>
 
         <form onSubmit={handleSubmit} className="border-t border-rule bg-paper py-4">
@@ -707,8 +717,9 @@ export default function ChatPage() {
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) handleSubmit(e);
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) handleSubmit(e);
               }}
+              aria-label="Your question"
               placeholder="Ask a question…"
               className="max-h-40 flex-1 resize-none rounded-md border border-rule bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-signal focus:outline-none"
             />

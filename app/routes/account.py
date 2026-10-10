@@ -132,6 +132,49 @@ def reset_password(request: Request, body: ResetPassword, db: Session = Depends(
     return {"access_token": create_access_token(user.id), "token_type": "bearer"}
 
 
+# ---- Email verification ----
+
+def send_verification(db: Session, user: User) -> bool:
+    raw = resets.create(db, user, via="verify")
+    db.commit()
+    link = f"{settings.frontend_url.rstrip('/')}/verify-email#{raw}"
+    return mailer.send(user.email, "Confirm your email for Citebase",
+                       f"Confirm that {user.email} is yours (link valid for 1 hour):\n{link}\n\n"
+                       "Until you do, you can use Citebase but can't invite teammates.")
+
+
+class VerifyEmail(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+
+
+@router.post("/account/verify-email", status_code=202)
+@limiter.limit("3/minute")
+def request_verification(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.email_verified_at is not None:
+        return {"sent": False, "already_verified": True}
+    if not mailer.enabled():
+        raise HTTPException(status_code=503, detail="Email isn't set up on this server yet.")
+    if not send_verification(db, user):
+        raise HTTPException(status_code=502, detail="The email couldn't be sent. Try again in a minute.")
+    return {"sent": True}
+
+
+@router.post("/auth/verify-email")
+@limiter.limit("10/minute")
+def confirm_email(request: Request, body: VerifyEmail, db: Session = Depends(get_db)):
+    token = resets.consume(db, body.token, purposes=("verify",))
+    user = db.get(User, token.user_id) if token else None
+    if user is None or not user.is_active:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="This link is invalid, used or expired.")
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(timezone.utc)
+        audit.record(db, org_id=user.org_id, actor_id=user.id, action="account.email_verified",
+                     target_type="user", target_id=user.id)
+    db.commit()
+    return {"email": user.email}
+
+
 # ---- Account settings ----
 
 class ChangePassword(BaseModel):

@@ -326,6 +326,8 @@ export const signOutEverywhere = (token) => request("/account/sign-out-everywher
 export const linkProvider = (token, provider) => request(`/account/link/${provider}`, { token, method: "POST" });
 export const unlinkProvider = (token, provider) =>
   request(`/account/identities/${provider}`, { token, method: "DELETE" });
+export const requestVerification = (token) => request("/account/verify-email", { token, method: "POST" });
+export const confirmEmail = (verifyToken) => request("/auth/verify-email", { method: "POST", body: { token: verifyToken } });
 export const forgotPassword = (email) => request("/auth/forgot-password", { method: "POST", body: { email } });
 export const previewReset = (resetToken) => request(`/auth/password-reset/${encodeURIComponent(resetToken)}`);
 export const resetPassword = (resetToken, password) =>

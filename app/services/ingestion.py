@@ -65,14 +65,17 @@ def _on_error(db: Session, payload: dict, exc: Exception, final: bool) -> None:
         "Processing failed. Try uploading the file again."
         if final else "Temporary problem while processing; retrying automatically."
     )
+    # Users see document history, so it gets a plain description; the exception
+    # itself (which can contain database or provider details) stays in the logs.
+    logger.warning("Ingest failed doc_id=%s final=%s: %s: %s", payload.get("doc_id"), final,
+                   type(exc).__name__, str(exc)[:300])
+    detail = "gave up after retries" if final else "will retry"
     try:
-        lifecycle.transition(db, payload["doc_id"], target,
-                             detail=f"{type(exc).__name__}: {exc}"[:500], error=message)
+        lifecycle.transition(db, payload["doc_id"], target, detail=detail, error=message)
     except lifecycle.InvalidTransition:
         # Failed before leaving `queued` (e.g. DB blip on the first transition).
         if final:
-            lifecycle.transition(db, payload["doc_id"], lifecycle.FAILED,
-                                 detail=f"{type(exc).__name__}: {exc}"[:500], error=message)
+            lifecycle.transition(db, payload["doc_id"], lifecycle.FAILED, detail=detail, error=message)
 
 
 jobs.register(KIND, jobs.Handler(run=_run, on_error=_on_error, scrub_keys=("text",)))

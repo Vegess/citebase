@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user, require_role
 from app.models.models import Collection, CollectionMember, Document, User
-from app.services import access, audit, lifecycle
+from app.services import access, audit, conflicts, lifecycle
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 require_admin = require_role("ADMIN")
@@ -100,6 +100,10 @@ def update_collection(collection_id: str, body: CollectionPatch, user: User = De
     if body.description is not None:
         col.description = body.description.strip() or None
     if body.restricted is not None:
+        if body.restricted and not col.restricted:
+            # Warnings elsewhere may quote these files, which are about to become private.
+            names = set(db.scalars(select(Document.filename).where(Document.collection_id == col.id)))
+            conflicts.recheck(db, conflicts.mentioning(db, user.org_id, names))
         col.restricted = body.restricted
     if body.member_ids is not None:
         _set_members(db, user, col, body.member_ids)

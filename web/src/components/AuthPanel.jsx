@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button } from "./ui";
 import { GitHubMark, GoogleMark, Icon } from "./icons";
 import { Wordmark } from "./Chrome";
+import { useDialog } from "../hooks/useDialog";
 
 const PROVIDER_LABEL = { google: "Google", github: "GitHub" };
 
@@ -49,6 +50,7 @@ function Input({ label, ...props }) {
 export function AuthPanel({ initialMode = "signin", onDone }) {
   const { signIn, register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mode, setMode] = useState(initialMode); // signin | signup
   const [step, setStep] = useState("email"); // email | details
   const [email, setEmail] = useState("");
@@ -79,7 +81,8 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
       if (mode === "signin") await signIn(email, password);
       else await register(email, password, orgName);
       onDone?.();
-      navigate("/home", { replace: true });
+      // Back to the page that sent them to sign in, if any.
+      navigate(location.state?.from?.pathname || "/home", { replace: true });
     } catch (err) {
       setError(
         err.detail ||
@@ -197,20 +200,19 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
 }
 
 export function AuthModal({ open, mode, onClose }) {
+  const dialog = useDialog(onClose, open);
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
     <div
+      ref={dialog}
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-ink/50 px-4 py-10 sm:items-center"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
       role="dialog"

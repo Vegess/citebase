@@ -66,7 +66,13 @@ export default function TeamPage() {
 
   async function handleResetLink(member) {
     try {
-      setResetLink(await api.createResetLink(token, member.id));
+      const result = await api.createResetLink(token, member.id);
+      if (result.sent) {
+        setResetLink(null);
+        notify(`Password reset email sent to ${result.email}.`, "info");
+      } else {
+        setResetLink(result);
+      }
       await refresh();
     } catch (err) {
       notify(err.detail || "Couldn't create a reset link.");
@@ -101,7 +107,7 @@ export default function TeamPage() {
     setBusy(true);
     try {
       const created = await api.createInvite(token, email, role);
-      setFreshLink({ email: created.email, url: `${window.location.origin}/invite#${created.token}` });
+      setFreshLink({ email: created.email, url: `${window.location.origin}/invite#${created.token}`, emailed: created.emailed });
       setEmail("");
       await refresh();
     } catch (err) {
@@ -195,7 +201,9 @@ export default function TeamPage() {
         {freshLink && (
           <div className="mt-4 rounded-md border border-source/25 bg-source-soft p-3">
             <p className="text-sm text-source">
-              Send this link to {freshLink.email}. It is shown only once.
+              {freshLink.emailed
+                ? `We've emailed the invite to ${freshLink.email}. You can also copy the link below; it is shown only once.`
+                : `Send this link to ${freshLink.email}. It is shown only once.`}
             </p>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <input
@@ -254,8 +262,8 @@ export default function TeamPage() {
                       </option>
                     ))}
                   </select>
-                  <Button variant="ghost" size="sm" onClick={() => handleResetLink(member)}>
-                    Reset link
+                  <Button variant="ghost" size="sm" onClick={() => handleResetLink(member)} title="Send them a link to choose a new password">
+                    Reset password
                   </Button>
                   <Button variant="danger" size="sm" onClick={() => handleRemove(member)}>
                     Remove

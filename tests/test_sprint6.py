@@ -118,6 +118,7 @@ def test_emailed_reset_link_works_once_and_verifies_the_email(app_client, monkey
     monkeypatch.setattr(mailer, "enabled", lambda: True)
     monkeypatch.setattr(mailer, "send", lambda to, subject, text: sent.append((to, text)) or True)
     h = _signup(app_client)
+    sent.clear()  # sign-up sends a confirmation email; only reset emails matter here
     assert app_client.post("/auth/forgot-password", json={"email": "nobody@acme.com"}).status_code == 202
     assert sent == []  # unknown email: nothing sent, same response
     app_client.post("/auth/forgot-password", json={"email": "O@acme.com"})

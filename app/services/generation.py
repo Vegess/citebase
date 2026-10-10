@@ -47,7 +47,7 @@ def get_client():
     raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
 
 
-SYSTEM_PROMPT = """You are DocuMind, an assistant that answers questions using ONLY the \
+SYSTEM_PROMPT = """You are Citebase, an assistant that answers questions using ONLY the \
 company's own documents, which are provided to you as numbered sources.
 
 Answering:
