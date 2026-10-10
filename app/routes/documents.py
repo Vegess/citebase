@@ -10,8 +10,6 @@ import os
 import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
 from slowapi.util import get_remote_address
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -22,14 +20,18 @@ from app.core.security import get_current_user, require_role, role_rank
 from app.models.models import Document, DocumentChunk, DocumentEvent, User
 from app.models.schemas import DocumentEventOut, DocumentOut
 from app.routes.chat import limiter
-from app.services import audit, ingestion, jobs, lifecycle
+from app.services import audit, extract, ingestion, jobs, lifecycle
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 settings = get_settings()
 logger = logging.getLogger("app.routes.documents")
 
-ALLOWED_TYPES = {"application/pdf", "text/plain"}
-_INVISIBLE = re.compile(r"[​-‍⁠﻿]")
+# Browsers label files inconsistently (.md is often "" or octet-stream), so the
+# type is decided from the bytes; this list only turns away obvious mismatches.
+ALLOWED_TYPES = {
+    "application/pdf", "text/plain", "text/markdown", "text/x-markdown", "application/octet-stream",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 
 
 def _sanitize_filename(name: str | None) -> str:
@@ -39,20 +41,6 @@ def _sanitize_filename(name: str | None) -> str:
     value = re.sub(r"[\x00-\x1f\x7f]+", "", value)
     value = value.strip(" .")
     return value or "untitled"
-
-
-def _extract_text(raw: bytes) -> str:
-    if raw.startswith(b"%PDF-"):
-        try:
-            reader = PdfReader(io.BytesIO(raw))
-            if reader.is_encrypted:
-                raise HTTPException(status_code=422, detail="This PDF is password-protected. Upload an unlocked copy.")
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except PdfReadError:
-            raise HTTPException(status_code=422, detail="This PDF looks damaged and couldn't be read.")
-    else:
-        text = raw.decode("utf-8", errors="replace")
-    return _INVISIBLE.sub("", text)
 
 
 def _schedule(background_tasks: BackgroundTasks) -> None:
@@ -78,16 +66,14 @@ def upload_document(
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB limit")
 
     if file.content_type and file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(status_code=415, detail="Only PDF and plain text files are supported")
+        raise HTTPException(status_code=415, detail="Upload a PDF, Word (.docx), Markdown or plain-text file.")
 
     raw = file.file.read()
-    if not raw.startswith(b"%PDF-"):
-        try:
-            raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=415, detail="Only PDF and plain text files are supported")
-
-    text = _extract_text(raw)
+    try:
+        text = extract.extract(raw, file.filename or "")
+    except extract.ExtractionError as exc:
+        status = 415 if "Upload a PDF" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc))
     if not text.strip():
         raise HTTPException(
             status_code=422,
@@ -98,7 +84,11 @@ def upload_document(
     if truncated:
         text = text[: settings.max_document_chars]
 
-    safe_name = _sanitize_filename(file.filename)
+    return _create_document(db, user, _sanitize_filename(file.filename), text, truncated, background_tasks)
+
+
+def _create_document(db: Session, user: User, safe_name: str, text: str, truncated: bool,
+                     background_tasks: BackgroundTasks) -> Document:
     doc = Document(
         org_id=user.org_id,
         uploaded_by=user.id,
@@ -119,6 +109,53 @@ def upload_document(
     db.refresh(doc)
     _schedule(background_tasks)
     return doc
+
+
+SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
+
+
+@router.post("/samples", response_model=list[DocumentOut], status_code=201)
+def load_samples(background_tasks: BackgroundTasks, user: User = Depends(require_role("MEMBER")),
+                 db: Session = Depends(get_db)):
+    """Add the Northwind Freight demo policies, so a new workspace can try
+    questions straight away. Files already in the workspace are skipped."""
+    existing = set(db.scalars(select(Document.filename).where(Document.org_id == user.org_id)))
+    created = []
+    for name in sorted(os.listdir(SAMPLES_DIR)):
+        if not name.endswith(".txt") or name in existing:
+            continue
+        with open(os.path.join(SAMPLES_DIR, name), encoding="utf-8") as fh:
+            text = fh.read()
+        created.append(_create_document(db, user, name, text, False, background_tasks))
+    return created
+
+
+@router.get("/passage")
+def read_passage(chunk_index: int, doc_id: str | None = None, filename: str | None = None,
+                 user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The exact text behind a citation, plus a little of what surrounds it."""
+    query = select(Document).where(Document.org_id == user.org_id)
+    if doc_id:
+        query = query.where(Document.id == doc_id)
+    elif filename:
+        query = query.where(Document.filename == filename).order_by(Document.created_at.desc())
+    else:
+        raise HTTPException(status_code=400, detail="doc_id or filename is required")
+    doc = db.scalars(query).first()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="That document is no longer in this workspace.")
+    rows = {
+        c.chunk_index: c.text
+        for c in db.scalars(select(DocumentChunk).where(
+            DocumentChunk.doc_id == doc.id, DocumentChunk.org_id == user.org_id,
+            DocumentChunk.chunk_index.in_([chunk_index - 1, chunk_index, chunk_index + 1])))
+    }
+    if chunk_index not in rows:
+        raise HTTPException(status_code=404, detail="That passage has changed since the answer was written.")
+    return {
+        "doc_id": doc.id, "filename": doc.filename, "chunk_index": chunk_index, "text": rows[chunk_index],
+        "before": rows.get(chunk_index - 1), "after": rows.get(chunk_index + 1), "num_chunks": doc.num_chunks,
+    }
 
 
 def _own_doc_or_404(db: Session, doc_id: str, user: User) -> Document:

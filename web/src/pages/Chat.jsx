@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, useToast } from "../components/ui";
 import { DemoBanner } from "../components/DemoBanner";
+import { Icon } from "../components/icons";
 import { useConversationState } from "../hooks/useConversationState";
 
 /**
@@ -13,21 +14,120 @@ import { useConversationState } from "../hooks/useConversationState";
  * answer you cannot use. They get their own colour and the document's own
  * vocabulary — filename, chunk index — rather than being tucked away.
  */
-function Sources({ citations }) {
+function Sources({ citations, onOpen }) {
   if (!citations?.length) return null;
 
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {citations.map((c, i) => (
-        <span
+        <button
+          type="button"
           key={`${c.filename}-${c.chunk_index}-${i}`}
-          className="inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source"
+          onClick={() => onOpen?.(c)}
+          title="Show the passage this came from"
+          className="inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source transition-colors hover:border-source/50 hover:bg-source/15"
         >
           <span className="opacity-60">{c.n ?? i + 1}</span>
           <span className="max-w-[220px] truncate">{c.filename}</span>
           <span className="opacity-60">#{c.chunk_index}</span>
-        </span>
+        </button>
       ))}
+    </div>
+  );
+}
+
+const STOP = new Set(["the", "and", "for", "what", "when", "how", "does", "with", "are", "our", "you", "your", "can", "this", "that", "from", "have", "who", "which", "about", "into", "there"]);
+
+/** Highlight the question's words in the passage, so the reader sees why it matched. */
+function highlight(text, question) {
+  const words = Array.from(new Set((question || "").toLowerCase().match(/[a-z0-9]{3,}/g) || [])).filter((w) => !STOP.has(w));
+  if (!words.length) return text;
+  const pattern = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return text.split(pattern).map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="rounded-sm bg-warn-soft px-0.5 text-ink">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
+/** Side panel with the exact text behind a citation. */
+function PassagePanel({ citation, question, onClose }) {
+  const { token } = useAuth();
+  const [passage, setPassage] = useState(null);
+  const [error, setError] = useState("");
+  const [context, setContext] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPassage(null);
+    setError("");
+    setContext(false);
+    api
+      .getPassage(token, { docId: citation.doc_id, filename: citation.filename, chunkIndex: citation.chunk_index })
+      .then((p) => !cancelled && setPassage(p))
+      .catch((err) => !cancelled && setError(err.detail || "Couldn't load this passage."));
+    return () => {
+      cancelled = true;
+    };
+  }, [token, citation]);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Source passage">
+      <div className="absolute inset-0 bg-ink/30" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-lg flex-col bg-surface shadow-2xl">
+        <header className="flex items-start gap-3 border-b border-rule px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Source [{citation.n}]</p>
+            <p className="truncate font-mono text-sm text-ink">{citation.filename}</p>
+            {passage && (
+              <p className="text-xs text-muted">
+                Passage {passage.chunk_index + 1} of {passage.num_chunks || "?"}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-muted hover:bg-rule-soft">
+            <Icon.Close />
+          </button>
+        </header>
+        <div className="flex-1 overflow-y-auto px-5 py-5 text-[15px] leading-relaxed text-ink">
+          {error ? (
+            <p className="text-sm text-danger">{error}</p>
+          ) : !passage ? (
+            <div className="space-y-2">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-4 rounded bg-rule-soft pulse-soft" />
+              ))}
+            </div>
+          ) : (
+            <>
+              {context && passage.before && (
+                <p className="mb-4 whitespace-pre-wrap text-sm text-muted">{passage.before}</p>
+              )}
+              <div className="whitespace-pre-wrap rounded-md border-l-4 border-source bg-source-soft/40 px-4 py-3">
+                {highlight(passage.text, question)}
+              </div>
+              {context && passage.after && (
+                <p className="mt-4 whitespace-pre-wrap text-sm text-muted">{passage.after}</p>
+              )}
+              {(passage.before || passage.after) && (
+                <button type="button" onClick={() => setContext((v) => !v)} className="mt-4 text-sm text-signal">
+                  {context ? "Hide surrounding text" : "Show surrounding text"}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -172,7 +272,7 @@ function Feedback({ message, onRate }) {
   );
 }
 
-function Message({ message, onRate }) {
+function Message({ message, onRate, onOpenSource }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -195,7 +295,7 @@ function Message({ message, onRate }) {
         <Answer content={message.content} />
         {message.streaming && <span className="stream-caret" />}
       </div>
-      <Sources citations={message.citations} />
+      <Sources citations={message.citations} onOpen={(c) => onOpenSource?.(c, message)} />
       <Feedback message={message} onRate={onRate} />
     </div>
   );
@@ -225,6 +325,7 @@ export default function ChatPage() {
   const notify = useToast();
   const { conversationId, setConversationId, clearConversationId } = useConversationState();
   const [messages, setMessages] = useState([]);
+  const [openSource, setOpenSource] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -544,7 +645,18 @@ export default function ChatPage() {
               <StarterCards suggestions={suggestions} onPick={ask} />
             </div>
           ) : (
-            messages.map((m, i) => <Message key={m.id || i} message={m} onRate={rate} />)
+            messages.map((m, i) => (
+              <Message
+                key={m.id || i}
+                message={m}
+                onRate={rate}
+                onOpenSource={(c, msg) => {
+                  const idx = messages.indexOf(msg);
+                  const asked = [...messages.slice(0, idx)].reverse().find((x) => x.role === "user");
+                  setOpenSource({ citation: c, question: asked?.content || "" });
+                }}
+              />
+            ))
           )}          {slowRequest && busy && (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted">
               <span className="animate-spin">⏳</span>
@@ -587,6 +699,13 @@ export default function ChatPage() {
         </form>
       </section>
     </main>
+      {openSource && (
+        <PassagePanel
+          citation={openSource.citation}
+          question={openSource.question}
+          onClose={() => setOpenSource(null)}
+        />
+      )}
     </>
   );
 }

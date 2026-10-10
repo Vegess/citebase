@@ -1,10 +1,13 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
-import { AppLayout, ProtectedRoute } from "./components/Chrome";
+import { AppLayout, GuestOnly, ProtectedRoute } from "./components/Chrome";
 import { AuthPage } from "./components/AuthPanel";
 import AuthCallbackPage from "./pages/AuthCallback";
 import PrivacyPage from "./pages/Privacy";
+import HomePage from "./pages/Home";
+import SettingsPage from "./pages/Settings";
+import { ForgotPasswordPage, ResetPasswordPage } from "./pages/PasswordReset";
 import LandingPage from "./pages/Landing";
 import { AcceptInvitePage } from "./pages/Auth";
 import DocumentsPage from "./pages/Documents";
@@ -31,12 +34,34 @@ export default function App() {
           <ServerWake />
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<AuthPage mode="signin" />} />
-            <Route path="/signup" element={<AuthPage mode="signup" />} />
+            <Route path="/login" element={<GuestOnly><AuthPage mode="signin" /></GuestOnly>} />
+            <Route path="/signup" element={<GuestOnly><AuthPage mode="signup" /></GuestOnly>} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/invite" element={<AcceptInvitePage />} />
 
+            <Route
+              path="/home"
+              element={
+                <ProtectedRoute>
+                  <AppShell>
+                    <HomePage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <AppShell>
+                    <SettingsPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/documents"
               element={

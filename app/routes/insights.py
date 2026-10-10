@@ -145,3 +145,51 @@ def workspace_insights(days: int = 30, user: User = Depends(require_role("ADMIN"
 
 def _utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+@router.get("/home")
+def home(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What a person sees first: recent documents, what needs attention, and
+    a setup checklist for new workspaces. Other people's questions are shown
+    to admins only, since a question can be personal."""
+    from app.core.security import role_rank
+    from app.models.models import Conversation, OrgInvite
+
+    is_admin = role_rank(user.role) >= role_rank("ADMIN")
+    docs = db.scalars(
+        select(Document).where(Document.org_id == user.org_id).order_by(Document.created_at.desc())
+    ).all()
+    recent = [
+        {"id": d.id, "filename": d.filename, "status": d.status, "created_at": d.created_at,
+         "summary": _plain_snippet(d.summary or "", 160) if d.summary else None}
+        for d in docs[:5]
+    ]
+    conflicts = [d.filename for d in docs if d.conflicts and json.loads(d.conflicts or "[]")]
+    failed = [d.filename for d in docs if d.status in ("failed", "reupload_required")]
+    processing = sum(1 for d in docs if d.status in ("queued", "chunking", "embedding"))
+
+    asked = db.scalar(select(func.count()).select_from(Conversation).where(Conversation.user_id == user.id)) or 0
+    members = db.scalar(select(func.count()).select_from(User).where(User.org_id == user.org_id, User.is_active)) or 0
+    invites = db.scalar(select(func.count()).select_from(OrgInvite).where(
+        OrgInvite.org_id == user.org_id, OrgInvite.accepted_at.is_(None), OrgInvite.revoked_at.is_(None))) or 0
+
+    popular, gaps = [], 0
+    if is_admin:
+        pairs = _paired_turns(db, user.org_id, datetime.now(timezone.utc) - timedelta(days=7))
+        counts = Counter(_normalise(q) for q, _ in pairs)
+        shown = {}
+        for q, _ in pairs:
+            shown.setdefault(_normalise(q), q.strip())
+        popular = [{"question": shown[k], "count": n} for k, n in counts.most_common(5)]
+        gaps = len({_normalise(q) for q, m in pairs if (m.answer_kind or "") in GAP_KINDS})
+
+    return {
+        "is_admin": is_admin,
+        "documents_total": len(docs),
+        "documents_ready": sum(1 for d in docs if d.status == "ready"),
+        "processing": processing,
+        "recent_documents": recent,
+        "popular_questions": popular,
+        "alerts": {"conflicts": conflicts, "failed": failed, "unanswered_questions": gaps},
+        "checklist": {"has_documents": bool(docs), "has_asked": asked > 0, "has_teammates": members > 1 or invites > 0},
+    }

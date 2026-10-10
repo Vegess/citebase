@@ -1,4 +1,14 @@
 const BASE = import.meta.env.VITE_API_URL || "";
+// Session endpoints go through the site's own origin (Vercel rewrites /api/*
+// to the API), so the httpOnly session cookie is first-party.
+const SESSION_BASE = import.meta.env.VITE_SESSION_BASE ?? "/api";
+
+/* Access tokens last 30 minutes. When one is rejected, AuthContext swaps in a
+   fresh one from the session cookie and the request is retried once. */
+let tokenRefresher = null;
+export function setTokenRefresher(fn) {
+  tokenRefresher = fn;
+}
 
 export class ApiError extends Error {
   constructor(status, detail, url) {
@@ -27,7 +37,19 @@ async function parseError(res, url) {
   return new ApiError(res.status, detail, url);
 }
 
-async function request(path, { token, method = "GET", body, form, signal } = {}) {
+async function request(path, opts = {}) {
+  try {
+    return await rawRequest(path, opts);
+  } catch (err) {
+    if (err.status === 401 && opts.token && !opts.retried && tokenRefresher) {
+      const fresh = await tokenRefresher();
+      if (fresh) return rawRequest(path, { ...opts, token: fresh, retried: true });
+    }
+    throw err;
+  }
+}
+
+async function rawRequest(path, { token, method = "GET", body, form, signal } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -190,16 +212,22 @@ export async function askStream(
   question,
   { conversationId, mode = "auto", onToken, onCitations, onMeta, onStep, signal } = {},
 ) {
-  const res = await fetch(`${BASE}/chat/ask/stream`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-    },
-    body: JSON.stringify({ question, conversation_id: conversationId, mode }),
-    signal,
-  });
+  const open = (bearer) =>
+    fetch(`${BASE}/chat/ask/stream`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ question, conversation_id: conversationId, mode }),
+      signal,
+    });
+  let res = await open(token);
+  if (res.status === 401 && tokenRefresher) {
+    const fresh = await tokenRefresher();
+    if (fresh) res = await open(fresh);
+  }
 
   if (!res.ok) throw await parseError(res);
   if (!res.body) throw new ApiError(500, "This browser cannot read streamed responses");
@@ -242,3 +270,55 @@ export async function askStream(
 
   if (buffer.trim()) handleLine(buffer.trim());
 }
+
+/* ---------------- sessions (cookie, same origin) ---------------- */
+
+async function sessionCall(path, { token, method = "POST", body } = {}) {
+  const headers = { "X-Requested-With": "citebase" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${SESSION_BASE}${path}`, {
+    method,
+    headers,
+    credentials: "include",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw await parseError(res, path);
+  return res.status === 204 ? null : res.json();
+}
+
+export const startSession = (token) => sessionCall("/auth/session", { token });
+export const refreshSession = () => sessionCall("/auth/refresh");
+export const endSession = () => sessionCall("/auth/logout");
+
+/* ---------------- account & password ---------------- */
+
+export const getAccount = (token) => request("/account", { token });
+export const changePassword = (token, currentPassword, newPassword) =>
+  request("/account/password", {
+    token,
+    method: "POST",
+    body: { current_password: currentPassword || null, new_password: newPassword },
+  });
+export const signOutEverywhere = (token) => request("/account/sign-out-everywhere", { token, method: "POST" });
+export const linkProvider = (token, provider) => request(`/account/link/${provider}`, { token, method: "POST" });
+export const unlinkProvider = (token, provider) =>
+  request(`/account/identities/${provider}`, { token, method: "DELETE" });
+export const forgotPassword = (email) => request("/auth/forgot-password", { method: "POST", body: { email } });
+export const previewReset = (resetToken) => request(`/auth/password-reset/${encodeURIComponent(resetToken)}`);
+export const resetPassword = (resetToken, password) =>
+  request("/auth/password-reset", { method: "POST", body: { token: resetToken, password } });
+export const createResetLink = (token, userId) =>
+  request(`/org/members/${userId}/reset-link`, { token, method: "POST" });
+export const renameWorkspace = (token, name) => request("/org", { token, method: "PATCH", body: { name } });
+
+/* ---------------- home, samples, passages ---------------- */
+
+export const getHome = (token) => request("/home", { token });
+export const loadSamples = (token) => request("/documents/samples", { token, method: "POST" });
+export const getPassage = (token, { docId, filename, chunkIndex }) => {
+  const q = new URLSearchParams({ chunk_index: String(chunkIndex) });
+  if (docId) q.set("doc_id", docId);
+  else q.set("filename", filename);
+  return request(`/documents/passage?${q}`, { token });
+};

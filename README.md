@@ -1,6 +1,8 @@
-# DocuMind — Company Docs RAG Assistant
+# Citebase — answers from your company's documents, with sources
 
-Upload your company documents, ask questions, get cited answers powered by your chosen LLM provider.
+*(Formerly DocuMind; renamed in October 2026 because that name belongs to an existing product.)*
+
+Upload your company's policies, handbooks and contracts (PDF, Word, Markdown or text), ask questions, and get answers where every claim links to the exact passage it came from.
 
 **Live Demo:** https://documind-beta-lac.vercel.app
 
@@ -52,6 +54,9 @@ CI runs the same eval with a deterministic offline embedder as a gate (`tests/te
 | Concern | Implementation |
 |---|---|
 | **Authentication** | Email + password (bcrypt) or Google / GitHub sign-in (OAuth 2.0 authorization-code flow). The OAuth `state` is a signed, 10-minute JWT bound to an httpOnly nonce cookie, so a forged or replayed callback is rejected. Only provider-verified emails are accepted. Social sign-in never logs into a password account (sign-up doesn't verify email, so that would allow account pre-hijacking), and a new social sign-in always gets its own workspace (or the invite waiting for that email) — never someone else's by name |
+| **Sessions** | 30-minute access tokens held in memory only. Staying signed in uses an httpOnly, SameSite=Lax cookie on the site's own origin (Vercel rewrites `/api/*` to the API), so page scripts can never read it; the database stores only its SHA-256. Cookie endpoints also require an `X-Requested-With` header. Sessions slide for 30 days (90-day hard limit). Sign out, password change, password reset and "sign out everywhere" revoke sessions and every access token already issued (`tokens_valid_after`, millisecond precision) |
+| **Password reset** | Single-use, hashed, 1-hour tokens; claimed atomically. Self-serve by email when `RESEND_API_KEY` is set (same response whether or not the email exists), or an admin creates a link for someone they outrank (audited). An emailed reset verifies the address; an admin link does not |
+| **Connected accounts** | Google/GitHub can be connected from Settings only to an account with the same email, which also verifies it. Social sign-in enters only accounts with a verified email |
 | **Data deletion** | The workspace owner can delete the whole workspace (typed-name confirmation); members, documents, chunks, conversations, invites and audit entries go in one transaction |
 | **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers. Signup always creates a new org; existing orgs are joined only by single-use invite |
 | **Roles (RBAC)** | OWNER / ADMIN / MEMBER / VIEWER, read from the database on every request. Viewers ask only; members upload; admins manage people and any document |
@@ -66,7 +71,7 @@ CI runs the same eval with a deterministic offline embedder as a gate (`tests/te
 ## Limitations
 
 - **Cold starts:** Free-tier hosting has ~50-second cold starts after 15 minutes of inactivity
-- **Scanned PDFs:** files with no extractable text are rejected (no OCR yet)
+- **Scanned PDFs:** files with no extractable text are rejected (no OCR yet). Word files are read from their text, headings and tables; images inside them are ignored
 - **Long files:** text beyond `MAX_DOCUMENT_CHARS` (200k ≈ 60 pages) is not indexed; such documents are flagged `truncated`
 - **Daily quota:** Subject to daily question limits per org and per user
 - **Model availability:** Depends on chosen LLM provider's API availability

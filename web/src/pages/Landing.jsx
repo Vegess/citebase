@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Wordmark } from "../components/Chrome";
 import { AuthModal } from "../components/AuthPanel";
+import { useAuth } from "../context/AuthContext";
 import { Icon } from "../components/icons";
 
 /* ------------------------------------------------------------------ */
@@ -12,7 +13,7 @@ const AUDIENCES = {
   hr: {
     tab: "For HR",
     headline: "Answer every policy question once. Then never again.",
-    sub: "Employees ask DocuMind about leave, notice periods and benefits, and get the answer with the exact handbook passage, instead of waiting for HR to reply.",
+    sub: "Employees ask Citebase about leave, notice periods and benefits, and get the answer with the exact handbook passage, instead of waiting for HR to reply.",
     demo: {
       q: "How much notice do I give after probation?",
       steps: ["Searched “notice period” in employee_handbook.pdf", "Read probation_policy.pdf"],
@@ -23,7 +24,7 @@ const AUDIENCES = {
   legal: {
     tab: "For Legal",
     headline: "Know what every contract says, and where they disagree.",
-    sub: "Ask across your agreements in plain language. DocuMind cites the clause, and its agents flag contradictions between documents before they become disputes.",
+    sub: "Ask across your agreements in plain language. Citebase cites the clause, and its agents flag contradictions between documents before they become disputes.",
     demo: {
       q: "Do the vendor MSA and the 2026 SOW agree on payment terms?",
       steps: ["Searched “payment terms” in vendor_msa.pdf", "Searched “payment terms” in sow_2026.pdf"],
@@ -34,7 +35,7 @@ const AUDIENCES = {
   it: {
     tab: "For IT & Security",
     headline: "Security policy answers people actually follow.",
-    sub: "Passwords, MFA, devices, incident reporting: the rules live in your policy, and DocuMind makes them answerable in seconds, with the source to prove it.",
+    sub: "Passwords, MFA, devices, incident reporting: the rules live in your policy, and Citebase makes them answerable in seconds, with the source to prove it.",
     demo: {
       q: "How fast must I report a lost laptop, and to whom?",
       steps: ["Searched “lost laptop report” across all policies"],
@@ -45,7 +46,7 @@ const AUDIENCES = {
   ops: {
     tab: "For Operations",
     headline: "Your SOPs, finally searchable by the people who use them.",
-    sub: "Shift rules, travel limits, approvals and claims: new joiners ask DocuMind instead of digging through shared drives, and every answer shows where it came from.",
+    sub: "Shift rules, travel limits, approvals and claims: new joiners ask Citebase instead of digging through shared drives, and every answer shows where it came from.",
     demo: {
       q: "What's the hotel limit in Mumbai and when do claims close?",
       steps: ["Searched “hotel limit metro” in travel_policy.pdf", "Searched “claim deadline”"],
@@ -59,7 +60,7 @@ const CAPABILITIES = [
   { icon: Icon.Cite, title: "Cited answers", body: "Every claim links to the file and passage it came from. Answers it can't support say so instead of guessing." },
   { icon: Icon.Search, title: "Hybrid search", body: "Meaning-based and exact-keyword search combined, so policy codes, amounts and IDs are found as reliably as concepts." },
   { icon: Icon.Agent, title: "Research agent", body: "For harder questions, an agent plans several searches across documents and shows each step it took." },
-  { icon: Icon.Alert, title: "Conflict detection", body: "When a new document contradicts an existing one, DocuMind flags it the moment it's uploaded." },
+  { icon: Icon.Alert, title: "Conflict detection", body: "When a new document contradicts an existing one, Citebase flags it the moment it's uploaded." },
   { icon: Icon.Chart, title: "Knowledge-gap insights", body: "See what your team asks, and which questions your documents can't answer yet." },
   { icon: Icon.Shield, title: "Workspace isolation", body: "Every query is filtered to your workspace in the database itself. Roles control who can upload and manage." },
 ];
@@ -93,7 +94,7 @@ const USE_CASES = {
 };
 
 const STEPS = [
-  { icon: Icon.Upload, title: "Upload your documents", body: "Handbooks, policies, contracts, SOPs as PDF or text. Each is read, indexed and summarised in the background, with suggested questions." },
+  { icon: Icon.Upload, title: "Upload your documents", body: "Handbooks, policies, contracts, SOPs as PDF, Word, Markdown or text. Each is read, indexed and summarised in the background, with suggested questions." },
   { icon: Icon.Chat, title: "Ask in plain language", body: "Ask quick questions, or tick Deep research for comparisons and 'do these conflict?' questions. Follow-ups keep the context." },
   { icon: Icon.Cite, title: "Verify and act", body: "Each answer carries numbered sources. Rate answers, and see knowledge gaps in Insights so you know what to document next." },
 ];
@@ -108,11 +109,11 @@ const SECURITY = [
 ];
 
 const FAQ = [
-  ["What kinds of documents work best?", "Text-based PDFs and .txt files: policies, handbooks, contracts, SOPs, reports. Scanned PDFs (photos of pages) aren't supported yet."],
-  ["Does DocuMind make things up?", "It is instructed to answer only from your documents and to cite them. When your documents don't cover a question it says so, shows no sources, and the question appears as a knowledge gap in Insights."],
+  ["What kinds of documents work best?", "Text-based PDFs, Word (.docx), Markdown and .txt files: policies, handbooks, contracts, SOPs, reports. Scanned PDFs (photos of pages) aren't supported yet."],
+  ["Does Citebase make things up?", "It is instructed to answer only from your documents and to cite them. When your documents don't cover a question it says so, shows no sources, and the question appears as a knowledge gap in Insights."],
   ["What is Deep research?", "An agent that plans up to four steps (searching specific files or reading whole documents) before answering. Use it for comparisons and questions that span several documents. Each step is shown."],
   ["Who can see my documents?", "Only people in your workspace. Viewers can ask questions; members can upload; admins manage people and any document. Owners can delete the whole workspace and all its data."],
-  ["Is it free?", "Yes, while DocuMind is in beta, with daily question limits per person and per workspace. Paid team plans are planned."],
+  ["Is it free?", "Yes, while Citebase is in beta, with daily question limits per person and per workspace. Paid team plans are planned."],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -219,6 +220,7 @@ const NAV = [
 export default function LandingPage() {
   const [audience, setAudience] = useState("hr");
   const [useCase, setUseCase] = useState("HR");
+  const { isAuthed } = useAuth();
   const [auth, setAuth] = useState(null); // null | "signin" | "signup"
   const [menuOpen, setMenuOpen] = useState(false);
   const a = AUDIENCES[audience];
@@ -254,12 +256,20 @@ export default function LandingPage() {
             ))}
           </nav>
           <div className="ml-auto hidden items-center gap-2 sm:flex">
-            <button type="button" onClick={() => setAuth("signin")} className="rounded-md px-3 py-2 text-sm font-medium text-signal hover:bg-signal-soft">
-              Log in
-            </button>
-            <button type="button" onClick={() => setAuth("signup")} className="rounded-md border border-signal px-4 py-2 text-sm font-semibold text-signal hover:bg-signal-soft">
-              Join for free
-            </button>
+            {isAuthed ? (
+              <Link to="/home" className="rounded-md bg-signal px-4 py-2 text-sm font-semibold text-white hover:bg-signal/90">
+                Open Citebase
+              </Link>
+            ) : (
+              <>
+                <button type="button" onClick={() => setAuth("signin")} className="rounded-md px-3 py-2 text-sm font-medium text-signal hover:bg-signal-soft">
+                  Log in
+                </button>
+                <button type="button" onClick={() => setAuth("signup")} className="rounded-md border border-signal px-4 py-2 text-sm font-semibold text-signal hover:bg-signal-soft">
+                  Join for free
+                </button>
+              </>
+            )}
           </div>
           <button
             type="button"
@@ -334,15 +344,15 @@ export default function LandingPage() {
         {/* Why */}
         <section className="mx-auto max-w-6xl px-5 py-20">
           <SectionHeading
-            eyebrow="Why DocuMind"
+            eyebrow="Why Citebase"
             title="Your answers already exist. They're just buried."
             sub="Policies live in PDFs nobody finds, so the same questions land on HR, legal and IT every week. General-purpose chatbots don't know your rules, and they sound confident even when they're wrong. Teams need answers grounded in their own documents, with the receipts."
           />
           <div className="mt-12 grid gap-4 md:grid-cols-3">
             {[
-              ["Without DocuMind", ["Search five shared drives for the right version", "Wait a day for HR or legal to reply", "Two policies say different things; nobody notices"], "bg-surface"],
+              ["Without Citebase", ["Search five shared drives for the right version", "Wait a day for HR or legal to reply", "Two policies say different things; nobody notices"], "bg-surface"],
               ["With a generic chatbot", ["Fluent answers with no source", "Doesn't know your company's rules", "Your documents leave your control"], "bg-surface"],
-              ["With DocuMind", ["Answers from your own files, cited", "Agents research across documents and flag contradictions", "Workspace-isolated, role-controlled, measurable"], "bg-signal-soft ring-1 ring-signal/30"],
+              ["With Citebase", ["Answers from your own files, cited", "Agents research across documents and flag contradictions", "Workspace-isolated, role-controlled, measurable"], "bg-signal-soft ring-1 ring-signal/30"],
             ].map(([title, points, style]) => (
               <div key={title} className={`rounded-xl border border-rule p-6 ${style}`}>
                 <h3 className="font-semibold text-ink">{title}</h3>
@@ -366,7 +376,7 @@ export default function LandingPage() {
               <div>
                 <h2 className="font-display text-3xl leading-tight text-ink">Ask the questions your team really asks</h2>
                 <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
-                  Pick a team to see the kinds of questions DocuMind answers, and what you get back.
+                  Pick a team to see the kinds of questions Citebase answers, and what you get back.
                 </p>
                 <button type="button" onClick={() => setAuth("signup")} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal">
                   Try it with your documents <Icon.Arrow />
@@ -426,7 +436,7 @@ export default function LandingPage() {
               <p className="font-mono text-[11px] uppercase tracking-widest text-paper/60">Agentic workflows</p>
               <h2 className="mt-2 font-display text-3xl leading-tight md:text-4xl">Agents that do the reading for you</h2>
               <p className="mt-3 text-[15px] leading-relaxed text-paper/75">
-                DocuMind doesn't stop at one search. Agents plan, read across files and work in the background, and they always show their work.
+                Citebase doesn't stop at one search. Agents plan, read across files and work in the background, and they always show their work.
               </p>
             </div>
             <div className="mt-12 grid gap-5 md:grid-cols-3">
@@ -518,7 +528,7 @@ export default function LandingPage() {
               <h3 className="font-semibold text-ink">Available now</h3>
               <ul className="mt-3 space-y-2 text-sm text-ink-soft">
                 {[
-                  "PDF and text uploads with automatic summaries",
+                  "PDF, Word, Markdown and text uploads with automatic summaries",
                   "Cited answers, whole-document review, comparisons",
                   "Research agent and conflict detection",
                   "Teams with roles and single-use invites",
@@ -532,7 +542,7 @@ export default function LandingPage() {
               <h3 className="font-semibold text-ink">Coming next</h3>
               <ul className="mt-3 space-y-2 text-sm text-ink-soft">
                 {[
-                  "Word documents and scanned PDFs (OCR)",
+                  "Scanned PDFs (OCR)",
                   "Google Drive and Notion sync",
                   "Slack and Teams answers",
                   "Team plans with higher limits",
@@ -621,7 +631,7 @@ export default function LandingPage() {
         </div>
         <div className="border-t border-paper/10">
           <p className="mx-auto max-w-6xl px-5 py-5 text-xs text-paper/50">
-            © {new Date().getFullYear()} DocuMind · Built by K Anirudh · Beta software: don't upload confidential documents to the public demo.
+            © {new Date().getFullYear()} Citebase · Built by K Anirudh · Beta software: don't upload confidential documents to the public demo.
           </p>
         </div>
       </footer>

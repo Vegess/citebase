@@ -1,0 +1,21 @@
+Northwind Freight Pvt. Ltd. — Travel and Expense Policy
+
+Fictional demo data for DocuMind.
+
+1. Approval
+All business travel needs prior approval from the employee's manager in the travel portal. International travel also needs approval from the department head.
+
+2. Flights
+Employees fly economy class. Business class is allowed only for international flights longer than 6 hours, with department head approval. Book at least 14 days in advance where possible.
+
+3. Hotels
+The hotel limit is Rs 6,000 per night in metro cities (Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata) and Rs 4,000 per night in other cities. Stays above the limit need written approval before booking.
+
+4. Daily allowance
+A daily allowance (per diem) of Rs 2,500 covers meals and local transport for domestic travel. International per diem is USD 60 per day.
+
+5. Claims
+Expense claims must be submitted within 30 days of the end of the trip, with receipts for every item above Rs 500. Claims submitted after 60 days are not reimbursed. Approved claims are paid with the next monthly salary.
+
+6. Not reimbursed
+Alcohol, personal entertainment, traffic fines and upgrades bought without approval are not reimbursed.

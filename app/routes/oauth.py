@@ -34,14 +34,15 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password
-from app.models.models import Org, OrgInvite, User
+from app.models.models import Org, OrgInvite, User, UserIdentity
 from app.services import audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 STATE_TTL = timedelta(minutes=10)
-NONCE_COOKIE = "documind_oauth_nonce"
+NONCE_COOKIE = "citebase_oauth_nonce"
+LINK_TTL = timedelta(minutes=5)
 
 PROVIDERS = {
     "google": {
@@ -77,8 +78,8 @@ def _frontend(path: str) -> str:
     return f"{settings.frontend_url.rstrip('/')}{path}"
 
 
-def _fail(reason: str) -> RedirectResponse:
-    response = RedirectResponse(_frontend("/auth/callback#" + urlencode({"error": reason})), status_code=302)
+def _fail(reason: str, to: str = "/auth/callback") -> RedirectResponse:
+    response = RedirectResponse(_frontend(to + "#" + urlencode({"error": reason})), status_code=302)
     response.delete_cookie(NONCE_COOKIE, path="/auth/oauth")
     return response
 
@@ -88,16 +89,33 @@ def list_providers():
     return {"providers": enabled_providers()}
 
 
+def link_start_url(user: User, provider: str) -> str:
+    """URL that starts connecting `provider` to an already signed-in account.
+    The browser can't send a Bearer header on a redirect, so the signed-in user
+    is carried in a short-lived signed token instead."""
+    token = jwt.encode(
+        {"purpose": "link", "u": user.id, "p": provider, "exp": datetime.now(timezone.utc) + LINK_TTL},
+        settings.jwt_secret_key, algorithm="HS256",
+    )
+    return f"{settings.api_public_url.rstrip('/')}/auth/oauth/{provider}/start?" + urlencode({"link": token})
+
+
 @router.get("/oauth/{provider}/start")
-def oauth_start(provider: str):
+def oauth_start(provider: str, link: str | None = None):
     if provider not in PROVIDERS or provider not in enabled_providers():
         raise HTTPException(status_code=404, detail=f"{provider} sign-in is not set up on this server.")
     client_id, _ = _credentials(provider)
     nonce = secrets.token_urlsafe(24)
-    state = jwt.encode(
-        {"p": provider, "n": nonce, "exp": datetime.now(timezone.utc) + STATE_TTL},
-        settings.jwt_secret_key, algorithm="HS256",
-    )
+    claims = {"p": provider, "n": nonce, "exp": datetime.now(timezone.utc) + STATE_TTL}
+    if link:
+        try:
+            intent = jwt.decode(link, settings.jwt_secret_key, algorithms=["HS256"])
+        except JWTError:
+            return _fail("expired", to="/settings")
+        if intent.get("purpose") != "link" or intent.get("p") != provider:
+            return _fail("state_mismatch", to="/settings")
+        claims["u"] = intent["u"]
+    state = jwt.encode(claims, settings.jwt_secret_key, algorithm="HS256")
     params = {
         "client_id": client_id,
         "redirect_uri": _callback_url(provider),
@@ -148,6 +166,14 @@ def fetch_verified_email(provider: str, access_token: str) -> tuple[str, str | N
     return primary["email"], profile.get("name") or profile.get("login")
 
 
+def remember_identity(db: Session, user: User, provider: str, email: str) -> None:
+    existing = db.scalar(select(UserIdentity).where(UserIdentity.user_id == user.id, UserIdentity.provider == provider))
+    if existing is None:
+        db.add(UserIdentity(user_id=user.id, provider=provider, email=email))
+    else:
+        existing.email = email
+
+
 class PasswordAccountExists(Exception):
     """The email belongs to an account that signs in with a password."""
 
@@ -159,13 +185,16 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
     if user is not None:
         if not user.is_active:
             raise PermissionError("This account has been removed from its workspace.")
-        if user.oauth_provider is None:
-            # A password account. Email sign-up doesn't prove the address, so
-            # anyone could have created it (and invited a second account of
-            # their own). Logging the real owner into it would hand that
-            # person their documents ("account pre-hijacking"). Make them use
-            # the password instead.
+        if user.email_verified_at is None:
+            # A password account whose email was never proven. Email sign-up
+            # doesn't check the address, so anyone could have created it (and
+            # invited a second account of their own). Logging the real owner
+            # into it would hand that person their documents ("account
+            # pre-hijacking"). They can sign in with the password and connect
+            # the provider from Settings, which proves the email.
             raise PasswordAccountExists(email)
+        remember_identity(db, user, provider, email)
+        db.commit()
         return user
 
     now = datetime.now(timezone.utc)
@@ -181,7 +210,7 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
     if invite is not None:
         invite.accepted_at = now
         user = User(email=email, hashed_password=unusable, org_id=invite.org_id, role=invite.role,
-                    oauth_provider=provider)
+                    oauth_provider=provider, email_verified_at=now, password_set=False)
         db.add(user)
         db.flush()
         audit.record(db, org_id=invite.org_id, actor_id=user.id, action="invite.accepted",
@@ -191,36 +220,67 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
         org = Org(name=org_name[:120])
         db.add(org)
         db.flush()
-        user = User(email=email, hashed_password=unusable, org_id=org.id, role="OWNER", oauth_provider=provider)
+        user = User(email=email, hashed_password=unusable, org_id=org.id, role="OWNER", oauth_provider=provider,
+                    email_verified_at=now, password_set=False)
         db.add(user)
         db.flush()
         audit.record(db, org_id=org.id, actor_id=user.id, action="org.created", target_type="org",
                      target_id=org.id, details={"via": provider})
+    remember_identity(db, user, provider, email)
     db.commit()
     return user
+
+
+def link_identity(db: Session, user_id: str, provider: str, email: str) -> str:
+    """Connect a provider to a signed-in account. Returns an error code or ''."""
+    user = db.get(User, user_id)
+    if user is None or not user.is_active:
+        return "account_removed"
+    if email.strip().lower() != user.email.lower():
+        return "email_mismatch"
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(timezone.utc)
+    remember_identity(db, user, provider, email.strip().lower())
+    audit.record(db, org_id=user.org_id, actor_id=user.id, action="account.provider_linked",
+                 target_type="user", target_id=user.id, details={"provider": provider})
+    db.commit()
+    return ""
 
 
 @router.get("/oauth/{provider}/callback")
 def oauth_callback(provider: str, request: Request, code: str | None = None, state: str | None = None,
                    error: str | None = None, db: Session = Depends(get_db)):
-    if provider not in enabled_providers():
-        return _fail("provider_disabled")
-    if error or not code or not state:
-        return _fail("cancelled")
     try:
-        claims = jwt.decode(state, settings.jwt_secret_key, algorithms=["HS256"])
+        claims = jwt.decode(state or "", settings.jwt_secret_key, algorithms=["HS256"])
     except JWTError:
+        claims = None
+    linking = bool(claims and claims.get("u"))
+    back = "/settings" if linking else "/auth/callback"
+
+    if provider not in enabled_providers():
+        return _fail("provider_disabled", to=back)
+    if error or not code or not state:
+        return _fail("cancelled", to=back)
+    if claims is None:
         return _fail("expired")
     cookie_nonce = request.cookies.get(NONCE_COOKIE)
     if claims.get("p") != provider or not cookie_nonce or not secrets.compare_digest(cookie_nonce, claims.get("n", "")):
-        return _fail("state_mismatch")
+        return _fail("state_mismatch", to=back)
 
     try:
         email, name = fetch_verified_email(provider, _exchange_code(provider, code))
     except ValueError:
-        return _fail("no_verified_email")
+        return _fail("no_verified_email", to=back)
     except httpx.HTTPError:
-        return _fail("provider_error")
+        return _fail("provider_error", to=back)
+
+    if linking:
+        problem = link_identity(db, claims["u"], provider, email)
+        if problem:
+            return _fail(problem, to="/settings")
+        response = RedirectResponse(_frontend("/settings#" + urlencode({"linked": provider})), status_code=302)
+        response.delete_cookie(NONCE_COOKIE, path="/auth/oauth")
+        return response
 
     try:
         user = sign_in_with_email(db, provider, email, name)

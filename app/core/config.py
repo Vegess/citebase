@@ -28,7 +28,14 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 24 * 60
+    # Short-lived: the browser renews it from the httpOnly session cookie.
+    access_token_expire_minutes: int = 30
+    session_days: int = 30
+    # Path the browser sees for session endpoints (the frontend proxies /api/* here).
+    session_cookie_path: str = "/api/auth"
+    # Password-reset emails (Resend). Without a key, admins hand out reset links instead.
+    resend_api_key: str | None = None
+    mail_from: str = "Citebase <no-reply@citebase.app>"
 
     # RAG
     chroma_persist_dir: str = "./chroma_data"  # unused since vectors moved to the database; kept so old .env files still load

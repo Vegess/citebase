@@ -112,6 +112,17 @@ must redeploy, not just restart.
 
 ---
 
+## Part 2a — Staying signed in (required since Sprint 6)
+
+`web/vercel.json` rewrites `/api/*` on the frontend to the API, so the session
+cookie is first-party. If your API URL is not `https://documind-intel.onrender.com`,
+change the `destination` in `web/vercel.json`. On the API, `FRONTEND_URL` must be
+your real frontend URL (it decides the cookie's `Secure` flag and reset links).
+
+Optional, for "Forgot password" emails: `RESEND_API_KEY` and `MAIL_FROM`
+(e.g. `Citebase <no-reply@yourdomain.com>`; Resend needs the domain verified).
+Without them, admins create reset links from the Team page.
+
 ## Part 2b — Google and GitHub sign-in (optional)
 
 The buttons appear for every visitor; a provider only works once its keys are

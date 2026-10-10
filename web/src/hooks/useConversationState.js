@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-const STORAGE_KEY = "documind-active-conversation";
+const STORAGE_KEY = "citebase-active-conversation";
 
 export function useConversationState() {
   const location = useLocation();

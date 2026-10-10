@@ -17,6 +17,8 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     proxy: {
+      // Session endpoints: same path shape as the Vercel rewrite in vercel.json.
+      "/api": { target: BACKEND_URL, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, "") },
       "/auth": api,
       "/chat": api,
       "/documents": api,

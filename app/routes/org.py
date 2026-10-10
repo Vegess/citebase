@@ -18,11 +18,12 @@ from app.core.database import get_db
 from app.core.security import require_role, role_rank
 from app.models.models import (
     AuditEvent, Conversation, ConversationMessage, Document, DocumentChunk, DocumentEvent, Org, OrgInvite,
-    QuestionUsage, User,
+    PasswordReset, QuestionUsage, User, UserIdentity, UserSession,
 )
 from app.models.schemas import AuditEventOut, InviteCreate, InviteCreated, InviteOut, MemberOut, RoleUpdate
 from app.routes.auth import hash_invite_token, normalize_email
-from app.services import audit
+from app.services import audit, resets
+from app.core.config import get_settings
 
 router = APIRouter(prefix="/org", tags=["org"])
 
@@ -92,6 +93,39 @@ def remove_member(user_id: str, actor: User = Depends(require_admin), db: Sessio
             target_type="user", target_id=member.id, details={"email": member.email},
         )
     db.commit()
+
+
+@router.post("/members/{user_id}/reset-link", status_code=201)
+def create_reset_link(user_id: str, actor: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """A one-hour, single-use link that lets a member choose a new password,
+    for when email isn't set up or they've lost access. Only for people you
+    outrank, and recorded in the activity log."""
+    member = _member_or_404(db, actor, user_id)
+    _check_can_manage(actor, member)
+    if not member.is_active:
+        raise HTTPException(status_code=400, detail="This person has been removed from the workspace.")
+    raw = resets.create(db, member, via="admin", created_by=actor.id)
+    audit.record(db, org_id=actor.org_id, actor_id=actor.id, action="member.reset_link_created",
+                 target_type="user", target_id=member.id, details={"email": member.email})
+    db.commit()
+    return {"url": f"{get_settings().frontend_url.rstrip('/')}/reset-password#{raw}", "email": member.email}
+
+
+class RenameWorkspace(BaseModel):
+    name: str
+
+
+@router.patch("")
+def rename_workspace(body: RenameWorkspace, actor: User = Depends(require_admin), db: Session = Depends(get_db)):
+    name = body.name.strip()
+    if not 2 <= len(name) <= 120:
+        raise HTTPException(status_code=400, detail="Use 2 to 120 characters.")
+    org = db.get(Org, actor.org_id)
+    old, org.name = org.name, name
+    audit.record(db, org_id=org.id, actor_id=actor.id, action="org.renamed", target_type="org", target_id=org.id,
+                 details={"from": old, "to": name})
+    db.commit()
+    return {"name": org.name}
 
 
 # ---- Invites ----
@@ -215,6 +249,8 @@ def delete_workspace(body: DeleteWorkspace, actor: User = Depends(require_role("
     db.execute(delete(AuditEvent).where(AuditEvent.org_id == org_id))
     db.execute(delete(QuestionUsage).where(or_(
         QuestionUsage.scope == f"org:{org_id}", QuestionUsage.scope.in_(user_ids or [""]))))
+    for model in (UserSession, PasswordReset, UserIdentity):
+        db.execute(delete(model).where(model.user_id.in_(user_ids or [""])))
     db.execute(delete(User).where(User.org_id == org_id))
     db.execute(delete(Org).where(Org.id == org_id))
     db.commit()
