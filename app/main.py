@@ -176,13 +176,35 @@ def require_metrics_token(credentials: HTTPAuthorizationCredentials | None = Dep
         raise HTTPException(status_code=401, detail="Invalid metrics token")
 
 
+# Database counts in /metrics are cached: a monitor polls every few minutes, and a query on each poll
+# would keep the free-tier Neon compute awake around the clock (100 compute-hours a month). Request
+# counters, latency and fallbacks come from memory and are always live.
+DB_STATS_TTL_S = 60 * 60
+_db_stats: dict = {}
+_db_stats_at = 0.0
+_db_stats_lock = threading.Lock()
+
+
+def _database_stats() -> tuple[dict, float]:
+    global _db_stats, _db_stats_at
+    with _db_stats_lock:
+        if not _db_stats or time.monotonic() - _db_stats_at > DB_STATS_TTL_S:
+            with SessionLocal() as db:
+                _db_stats = {
+                    "docs_by_status": dict(db.execute(select(Document.status, func.count()).group_by(Document.status)).all()),
+                    "chunks_total": db.scalar(select(func.count()).select_from(DocumentChunk)) or 0,
+                    "jobs_by_status": dict(db.execute(select(Job.status, func.count()).group_by(Job.status)).all()),
+                    "questions_today": get_usage(db),
+                }
+            _db_stats_at = time.monotonic()
+        return _db_stats, time.monotonic() - _db_stats_at
+
+
 @app.get("/metrics", dependencies=[Depends(require_metrics_token)])
 def read_metrics():
-    with SessionLocal() as db:
-        docs_by_status = dict(db.execute(select(Document.status, func.count()).group_by(Document.status)).all())
-        chunks_total = db.scalar(select(func.count()).select_from(DocumentChunk)) or 0
-        jobs_by_status = dict(db.execute(select(Job.status, func.count()).group_by(Job.status)).all())
-        questions_today = get_usage(db)
+    stats, age = _database_stats()
+    docs_by_status, chunks_total = stats["docs_by_status"], stats["chunks_total"]
+    jobs_by_status, questions_today = stats["jobs_by_status"], stats["questions_today"]
     model = {
         "groq": settings.groq_model, "gemini": settings.gemini_model, "anthropic": settings.claude_model,
     }.get(settings.llm_provider)
@@ -198,6 +220,7 @@ def read_metrics():
         "chunks_total": chunks_total,
         "jobs_by_status": jobs_by_status,
         "questions_today": questions_today,
+        "db_stats_age_s": round(age),
     }
 
 

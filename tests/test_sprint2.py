@@ -282,3 +282,27 @@ def test_json_log_formatter_never_crashes_on_missing_fields():
     record = logging.LogRecord("x", logging.WARNING, __file__, 1, "hello %s", ("world",), None)
     line = json.loads(JsonFormatter().format(record))
     assert line["msg"] == "hello world" and "fallback" not in line
+
+
+def test_metrics_cache_database_counts_so_a_monitor_does_not_keep_the_db_awake(app_client, monkeypatch):
+    import app.main as main_module
+    monkeypatch.setattr(settings(), "metrics_token", "s3cret")
+    auth = {"Authorization": "Bearer s3cret"}
+    first = app_client.get("/metrics", headers=auth).json()
+    assert first["documents_total"] == 0 and first["db_stats_age_s"] == 0
+
+    headers = signup(app_client, "a@acme.com")
+    upload(app_client, headers)
+    app_client.post("/chat/ask", headers=headers, json={"question": "notice period"})
+    cached = app_client.get("/metrics", headers=auth).json()
+    assert cached["documents_total"] == 0          # database counts: from the cache
+    assert cached["chat_requests_total"] >= 1      # request counters: always live
+
+    monkeypatch.setattr(main_module, "DB_STATS_TTL_S", 0)
+    fresh = app_client.get("/metrics", headers=auth).json()
+    assert fresh["documents_total"] == 1
+
+
+def test_worker_idle_poll_is_long():
+    from app.services import jobs
+    assert jobs.IDLE_POLL_SECONDS >= 60 * 60
