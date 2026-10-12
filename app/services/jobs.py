@@ -27,7 +27,10 @@ from app.models.models import Job
 logger = logging.getLogger("app.services.jobs")
 
 STALE_AFTER = timedelta(minutes=10)
-IDLE_POLL_SECONDS = 15 * 60
+# New jobs wake the worker directly (enqueue sets _wake) and retries are timed by run_after, so the idle
+# poll is only a safety net. Keep it long: every query wakes the free-tier Neon database, which counts
+# compute hours for 5 minutes after the last query.
+IDLE_POLL_SECONDS = 60 * 60
 BACKOFF = [timedelta(seconds=10), timedelta(seconds=60), timedelta(minutes=5)]
 
 
