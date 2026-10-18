@@ -62,6 +62,7 @@ CI runs the same eval with a deterministic offline embedder as a gate (`tests/te
 | **Data deletion** | The workspace owner can delete the whole workspace (typed-name confirmation); members, documents, chunks, conversations, invites and audit entries go in one transaction |
 | **Multi-tenancy** | Org isolation enforced at both SQL (WHERE org_id = ?) and vector (ChromaDB metadata filter) layers. Signup always creates a new org; existing orgs are joined only by single-use invite |
 | **Roles (RBAC)** | OWNER / ADMIN / MEMBER / VIEWER, read from the database on every request. Viewers ask only; members upload; admins manage people and any document |
+| **Invite-only launch** | `SIGNUP_MODE=waitlist` turns sign-up into "Request access". `POST /auth/access-requests` is rate-limited (5/hour/IP) and gives the same reply whether or not the email is known, so it can't reveal who uses Citebase. Platform admins (`PLATFORM_ADMIN_EMAILS`, verified email required) approve at `/admin/access`; approval emails a single-use, 7-day link to `/signup#access=<token>` (stored as SHA-256, cleared on use). Password sign-up then needs that token, which also verifies the email; Google/GitHub sign-up needs an approved request for the email. Team invites and existing users are unaffected |
 | **Invites** | 32-byte random tokens, stored as SHA-256 hashes, expire after 7 days. Acceptance is atomic (`SELECT … FOR UPDATE` + conditional update), so an invite can create exactly one account even under concurrent requests |
 | **Audit log** | Org creation, invites, role changes, removals, uploads and deletions are recorded in the same transaction as the change |
 | **Rate Limiting** | 20 requests/min on `/chat/ask` via slowapi |
@@ -178,12 +179,25 @@ uvicorn app.main:app --reload
 
 > This repo is currently configured to use SQLite for local development. The app also supports Docker-based deployment via `Dockerfile` and `docker-compose.yml`.
 
+## Invite-only launch
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SIGNUP_MODE` | `open` | `open`: anyone can create a workspace. `waitlist`: new accounts need an approved access request (team invites still work; existing users can always sign in) |
+| `PLATFORM_ADMIN_EMAILS` | _(empty)_ | Comma-separated emails that review access requests at `/admin/access`. The account's email must be verified (sign in once with Google/GitHub, or use the emailed verification link) |
+
+Admins are notified of new requests by email, and approved people get their sign-up link by email, through the configured Brevo/Resend key. Without one, the approve response (and the admin page) shows the link to send by hand.
+
 ## Local endpoints
 
 - `POST /auth/signup` — creates a new org with you as OWNER
 - `POST /auth/login`
 - `GET /auth/invites/{token}` — preview an invite
 - `POST /auth/accept-invite` — join an org with an invite token
+- `GET /auth/signup-config` — `{"mode": "open" | "waitlist"}`
+- `POST /auth/access-requests` — ask for access (public, 5/hour/IP, uniform reply)
+- `GET /auth/access/{token}` — preview an approved sign-up link (returns the locked email)
+- `GET /admin/access-requests`, `POST /admin/access-requests/{id}/approve`, `POST /admin/access-requests/{id}/reject` — platform admins only
 - `GET /org/members`, `PATCH /org/members/{id}`, `DELETE /org/members/{id}` — admin+
 - `POST /org/invites`, `GET /org/invites`, `DELETE /org/invites/{id}` — admin+
 - `GET /org/audit` — admin+

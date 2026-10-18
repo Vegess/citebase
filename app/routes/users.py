@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.models import Org, User
 from app.models.schemas import MeResponse
+from app.services import waitlist
 
 router = APIRouter(tags=["users"])
 
@@ -23,4 +24,5 @@ def read_me(user: User = Depends(get_current_user), db: Session = Depends(get_db
         org_id=user.org_id,
         org_name=org.name if org else None,
         role=user.role,
+        is_platform_admin=waitlist.is_platform_admin(user),
     )

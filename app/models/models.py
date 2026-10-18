@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 import json
 
-from sqlalchemy import Boolean, Date, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, Index, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint, text
 from sqlalchemy.types import TypeDecorator, UserDefinedType
 from sqlalchemy.sql.expression import false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -329,3 +329,26 @@ class VerifiedAnswer(Base):
     verified_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AccessRequest(Base):
+    """A request to join the invite-only beta. Approval issues a single-use
+    sign-up token (only its SHA-256 is stored; cleared once used)."""
+    __tablename__ = "access_requests"
+    __table_args__ = (
+        # One pending request per email; a rejected person may ask again later.
+        Index("uq_access_request_pending_email", "email", unique=True,
+              postgresql_where=text("status = 'pending'"), sqlite_where=text("status = 'pending'")),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # lower-cased
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    company: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

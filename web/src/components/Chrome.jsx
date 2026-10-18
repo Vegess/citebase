@@ -48,6 +48,13 @@ export function AdminOnly({ children }) {
   return children;
 }
 
+/** Platform admins (PLATFORM_ADMIN_EMAILS) review access requests. */
+export function PlatformAdminOnly({ children }) {
+  const { user } = useAuth();
+  if (user && !user.is_platform_admin) return <Navigate to="/home" replace />;
+  return children;
+}
+
 /** Sends signed-in people past the sign-in pages. */
 export function GuestOnly({ children }) {
   const { isAuthed, restoring } = useAuth();
@@ -73,6 +80,7 @@ const NAV = [
   { to: "/insights", label: "Insights", icon: Icon.Chart, hint: "Gaps, conflicts, usage", minRole: "ADMIN" },
   { to: "/team", label: "Team", icon: Icon.Users, hint: "Members, invites, audit", minRole: "ADMIN" },
   { to: "/settings", label: "Settings", icon: Icon.Gear, hint: "Account and workspace" },
+  { to: "/admin/access", label: "Access requests", icon: Icon.Lock, hint: "Approve waitlist sign-ups", platformAdmin: true },
 ];
 
 function initials(email = "") {
@@ -83,7 +91,9 @@ function initials(email = "") {
 
 function SidebarContents({ onNavigate }) {
   const { user, signOut } = useAuth();
-  const items = NAV.filter((n) => !n.minRole || hasRole(user, n.minRole));
+  const items = NAV.filter(
+    (n) => (!n.minRole || hasRole(user, n.minRole)) && (!n.platformAdmin || user?.is_platform_admin),
+  );
 
   return (
     <div className="flex h-full flex-col">

@@ -13,6 +13,8 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     org_name: str = Field(min_length=2, max_length=120)
+    # From an approved access request (#access= in the link). Required when SIGNUP_MODE=waitlist.
+    access_token: str | None = Field(default=None, min_length=20, max_length=200)
 
 
 class TokenResponse(BaseModel):
@@ -138,6 +140,7 @@ class MeResponse(BaseModel):
     org_id: str
     org_name: str | None = None
     role: str
+    is_platform_admin: bool = False
 
 
 # ---- Org: members, invites, audit ----
@@ -203,3 +206,30 @@ class AuditEventOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---- Waitlist (SIGNUP_MODE=waitlist) ----
+class AccessRequestCreate(BaseModel):
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=120)
+    company: str | None = Field(default=None, max_length=120)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class AccessPreview(BaseModel):
+    email: EmailStr
+    name: str
+
+
+class AccessRequestOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    company: str | None
+    reason: str | None
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+    token_expires_at: datetime | None
+
+    model_config = {"from_attributes": True}

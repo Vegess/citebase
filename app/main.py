@@ -29,7 +29,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.logging_setup import configure_logging, recent_logs
 from app.models.models import Document, DocumentChunk, Job
-from app.routes import account, auth, chat, collections, documents, insights, oauth, org, users
+from app.routes import account, auth, chat, collections, documents, insights, oauth, org, users, waitlist
 from app.routes.chat import limiter
 from app.services import conflicts, ingestion, summaries  # noqa: F401 — register job handlers
 from app.services import jobs, metrics, rag
@@ -143,6 +143,8 @@ app.include_router(documents.router)
 app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(org.router)
+app.include_router(waitlist.public)
+app.include_router(waitlist.admin)
 
 
 @app.get("/ping")

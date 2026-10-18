@@ -129,8 +129,8 @@ export function AuthProvider({ children }) {
   );
 
   const register = useCallback(
-    async (email, password, orgName) => {
-      const { access_token } = await api.signup(email, password, orgName);
+    async (email, password, orgName, accessToken) => {
+      const { access_token } = await api.signup(email, password, orgName, accessToken);
       await establish(access_token);
     },
     [establish],

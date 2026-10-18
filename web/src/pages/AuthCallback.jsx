@@ -12,6 +12,8 @@ const ERRORS = {
   provider_disabled: "That sign-in option isn't set up on this server.",
   use_password:
     "This email already has a Citebase password. Sign in with your email and password instead.",
+  not_approved:
+    "Citebase is invite-only right now and this email hasn't been approved yet. Request access and we'll email you when you're in.",
   account_removed: "This account was removed from its workspace. Ask an admin for a new invite.",
 };
 
@@ -20,6 +22,7 @@ export default function AuthCallbackPage() {
   const { signInWithToken } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState("");
+  const [notApproved, setNotApproved] = useState(false);
   const handled = useRef(false);
 
   useEffect(() => {
@@ -30,6 +33,7 @@ export default function AuthCallbackPage() {
     window.history.replaceState(null, "", window.location.pathname);
     const token = params.get("token");
     if (!token) {
+      setNotApproved(params.get("error") === "not_approved");
       setError(ERRORS[params.get("error")] || "Sign-in didn't complete. Please try again.");
       return;
     }
@@ -44,9 +48,15 @@ export default function AuthCallbackPage() {
           <p role="alert" className="mt-6 max-w-sm rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
             {error}
           </p>
-          <Link to="/login" className="mt-4 text-sm text-signal">
-            Back to sign in
-          </Link>
+          {notApproved ? (
+            <Link to="/signup" className="mt-4 text-sm text-signal">
+              Request access
+            </Link>
+          ) : (
+            <Link to="/login" className="mt-4 text-sm text-signal">
+              Back to sign in
+            </Link>
+          )}
         </>
       ) : (
         <p className="mt-6 text-sm text-muted">Signing you in…</p>

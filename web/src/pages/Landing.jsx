@@ -4,6 +4,7 @@ import { Wordmark } from "../components/Chrome";
 import { AuthModal } from "../components/AuthPanel";
 import { useAuth } from "../context/AuthContext";
 import { Icon } from "../components/icons";
+import { useSignupMode } from "../hooks/useSignupMode";
 
 /* ------------------------------------------------------------------ */
 /* Content                                                             */
@@ -222,6 +223,8 @@ export default function LandingPage() {
   const [useCase, setUseCase] = useState("HR");
   const { isAuthed } = useAuth();
   const [auth, setAuth] = useState(null); // null | "signin" | "signup"
+  // Invite-only launch: every sign-up button asks for access instead.
+  const waitlist = useSignupMode() === "waitlist";
   const [menuOpen, setMenuOpen] = useState(false);
   const a = AUDIENCES[audience];
 
@@ -266,7 +269,7 @@ export default function LandingPage() {
                   Log in
                 </button>
                 <button type="button" onClick={() => setAuth("signup")} className="rounded-md border border-signal px-4 py-2 text-sm font-semibold text-signal hover:bg-signal-soft">
-                  Join for free
+                  {waitlist ? "Request access" : "Join for free"}
                 </button>
               </>
             )}
@@ -299,7 +302,7 @@ export default function LandingPage() {
                     Log in
                   </button>
                   <button type="button" onClick={() => { setMenuOpen(false); setAuth("signup"); }} className="flex-1 rounded-md bg-signal py-2 text-sm font-semibold text-white">
-                    Join for free
+                    {waitlist ? "Request access" : "Join for free"}
                   </button>
                 </>
               )}
@@ -321,13 +324,13 @@ export default function LandingPage() {
             <p className="mt-5 max-w-xl text-[17px] leading-relaxed text-white/90">{a.sub}</p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <button type="button" onClick={() => setAuth("signup")} className="rounded-md bg-white px-6 py-3 text-[15px] font-semibold text-signal shadow-sm hover:bg-white/90">
-                Start free
+                {waitlist ? "Request access" : "Start free"}
               </button>
               <a href="#how" className="inline-flex items-center gap-2 px-2 py-3 text-[15px] font-medium text-white hover:underline">
                 See how it works <Icon.Arrow />
               </a>
             </div>
-            <p className="mt-4 text-sm text-white/75">Free during beta · Sign in with Google or GitHub · No card needed</p>
+            <p className="mt-4 text-sm text-white/75">{waitlist ? "Invite-only beta · Free while in beta · No card needed" : "Free during beta · Sign in with Google or GitHub · No card needed"}</p>
           </div>
           <LiveDemo demo={a.demo} />
         </div>
@@ -387,7 +390,7 @@ export default function LandingPage() {
                   Pick a team to see the kinds of questions Citebase answers, and what you get back.
                 </p>
                 <button type="button" onClick={() => setAuth("signup")} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-signal">
-                  Try it with your documents <Icon.Arrow />
+                  {waitlist ? "Request access" : "Try it with your documents"} <Icon.Arrow />
                 </button>
               </div>
               <div>
@@ -587,7 +590,7 @@ export default function LandingPage() {
                     onClick={() => setAuth("signup")}
                     className={`mt-6 rounded-md py-2.5 text-sm font-semibold ${p.primary ? "bg-signal text-white" : "border border-rule text-ink hover:border-ink-soft"}`}
                   >
-                    {p.cta}
+                    {waitlist ? "Request access" : p.cta}
                   </button>
                 </div>
               ))}
@@ -609,7 +612,7 @@ export default function LandingPage() {
               <p className="mt-2 text-white/85">It takes about a minute to see your first cited answer.</p>
             </div>
             <button type="button" onClick={() => setAuth("signup")} className="rounded-md bg-white px-6 py-3 font-semibold text-signal hover:bg-white/90">
-              Start free
+              {waitlist ? "Request access" : "Start free"}
             </button>
           </div>
         </section>

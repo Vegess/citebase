@@ -11,19 +11,40 @@ import re
 _MARKER = re.compile(r"\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")
 
 # Models don't always use plain [1]. Seen in production: 【1】 (gpt-oss), and
-# other common variants: ［1］, 〔1〕, [^1], [source 1], 【1†L4-L9】, [1，2].
+# other common variants: ［1］, 〔1〕, [^1], [source 1], 【1†L4-L9】, [1，2],
+# and ranges: 【4-6】, [2, 4–6].
+_NUM = r"\d{1,2}(?:\s*[-–—]\s*\d{1,2})?"
 _VARIANT = re.compile(
     r"[\[【［〔]\s*(?:\^|source\s*)?"
-    r"(\d{1,2}(?:\s*[,，、]\s*\d{1,2})*)"
+    rf"({_NUM}(?:\s*[,，、]\s*{_NUM})*)"
     r"(?:\s*†[^\]】］〕]*)?\s*[\]】］〕]",
     re.IGNORECASE,
 )
 
 
+# A range is expanded only when it is short; [1-40] is more likely not a citation.
+MAX_RANGE = 10
+
+
+def _expand(part: str) -> list[str] | None:
+    bounds = re.split(r"\s*[-–—]\s*", part)
+    if len(bounds) == 1:
+        return [part]
+    low, high = int(bounds[0]), int(bounds[1])
+    if low > high or high - low + 1 > MAX_RANGE:
+        return None
+    return [str(n) for n in range(low, high + 1)]
+
+
 def normalize_markers(answer: str) -> str:
     """Rewrite every citation-marker variant to the canonical [1] / [1, 2] form."""
     def canonical(match: re.Match) -> str:
-        numbers = re.split(r"\s*[,，、]\s*", match.group(1).strip())
+        numbers: list[str] = []
+        for part in re.split(r"\s*[,，、]\s*", match.group(1).strip()):
+            expanded = _expand(part)
+            if expanded is None:
+                return match.group(0)  # leave long or backwards ranges as written
+            numbers += [n for n in expanded if n not in numbers]
         return "[" + ", ".join(numbers) + "]"
 
     return _merge_runs(_VARIANT.sub(canonical, answer or ""))

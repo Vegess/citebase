@@ -12,7 +12,8 @@ Flow
    - an open invite for that email → join the inviting workspace with that role
      (the provider has verified the address, so this is safe);
    - otherwise → a new workspace with the user as OWNER (same rule as signup:
-     never join an existing org by name).
+     never join an existing org by name). With SIGNUP_MODE=waitlist this needs
+     an approved access request for the email.
 4. Browser → {FRONTEND_URL}/auth/callback#token=...
    The token rides in the URL fragment, which browsers never send to servers
    or put in Referer headers.
@@ -35,7 +36,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password
 from app.models.models import Org, OrgInvite, User, UserIdentity
-from app.services import audit
+from app.services import audit, waitlist
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -178,6 +179,10 @@ class PasswordAccountExists(Exception):
     """The email belongs to an account that signs in with a password."""
 
 
+class NotApproved(Exception):
+    """Waitlist mode, and this email has no approved access request."""
+
+
 def sign_in_with_email(db: Session, provider: str, email: str, name: str | None) -> User:
     """Find or create the account for a provider-verified email."""
     email = email.strip().lower()
@@ -216,6 +221,12 @@ def sign_in_with_email(db: Session, provider: str, email: str, name: str | None)
         audit.record(db, org_id=invite.org_id, actor_id=user.id, action="invite.accepted",
                      target_type="invite", target_id=invite.id, details={"role": invite.role, "via": provider})
     else:
+        if waitlist.enabled():
+            approved = waitlist.approved_request_for(db, email)
+            if approved is None:
+                db.rollback()
+                raise NotApproved(email)
+            approved.token_hash = None  # account made; the emailed link can't make another
         org_name = f"{name}'s workspace" if name else f"{email.split('@')[0]}'s workspace"
         org = Org(name=org_name[:120])
         db.add(org)
@@ -288,6 +299,8 @@ def oauth_callback(provider: str, request: Request, code: str | None = None, sta
         return _fail("account_removed")
     except PasswordAccountExists:
         return _fail("use_password")
+    except NotApproved:
+        return _fail("not_approved")
 
     response = RedirectResponse(
         _frontend("/auth/callback#" + urlencode({"token": create_access_token(user.id)})), status_code=302)
