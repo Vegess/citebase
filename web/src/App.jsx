@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
-import { AdminOnly, AppLayout, FullPageNote, GuestOnly, ProtectedRoute } from "./components/Chrome";
+import { AdminOnly, AppLayout, FullPageNote, GuestOnly, PlatformAdminOnly, ProtectedRoute } from "./components/Chrome";
 import { AuthPage } from "./components/AuthPanel";
 import LandingPage from "./pages/Landing";
 import { QuickAsk } from "./components/QuickAsk";
@@ -22,6 +22,7 @@ const InsightsPage = lazy(() => import("./pages/Insights"));
 const ForgotPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ForgotPasswordPage })));
 const VerifyEmailPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.VerifyEmailPage })));
 const ResetPasswordPage = lazy(() => import("./pages/PasswordReset").then((m) => ({ default: m.ResetPasswordPage })));
+const AdminAccessPage = lazy(() => import("./pages/AdminAccess"));
 const AcceptInvitePage = lazy(() => import("./pages/Auth").then((m) => ({ default: m.AcceptInvitePage })));
 
 function InApp({ children }) {
@@ -60,6 +61,7 @@ export default function App() {
               <Route path="/insights" element={<InApp><AdminOnly><InsightsPage /></AdminOnly></InApp>} />
               <Route path="/team" element={<InApp><AdminOnly><TeamPage /></AdminOnly></InApp>} />
               <Route path="/settings" element={<InApp><SettingsPage /></InApp>} />
+              <Route path="/admin/access" element={<InApp><PlatformAdminOnly><AdminAccessPage /></PlatformAdminOnly></InApp>} />
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

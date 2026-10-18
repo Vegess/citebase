@@ -1,5 +1,6 @@
 """Application configuration — all values come from environment / .env file."""
 from functools import lru_cache
+from typing import Literal
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,12 +76,22 @@ class Settings(BaseSettings):
     api_public_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:5173"
 
+    # Invite-only launch. "waitlist": new accounts need an approved access
+    # request (team invites still work, existing users can always sign in).
+    signup_mode: Literal["open", "waitlist"] = "open"
+    # Comma-separated emails that may review access requests at /admin/access.
+    platform_admin_emails: str = ""
+
     # JSON log lines (set LOG_JSON=false for plain text while developing).
     log_json: bool = True
 
     # Bearer token for GET /metrics (read by Vigil). Unset = endpoint disabled.
     metrics_token: str | None = None
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    @property
+    def platform_admins(self) -> set[str]:
+        return {e.strip().lower() for e in self.platform_admin_emails.split(",") if e.strip()}
+
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8")
 
 

@@ -1,4 +1,5 @@
 """Sprint 1: citations point only at sources the answer used; chats get titles."""
+import pytest
 from app.services.citations import select_citations
 
 CHUNKS = [
@@ -65,3 +66,28 @@ def test_long_question_titles_are_trimmed(app_client):
     app_client.post("/chat/ask", headers=headers, json={"question": "x" * 300})
     title = app_client.get("/chat/conversations", headers=headers).json()[0]["title"]
     assert len(title) == 80 and title.endswith("...")
+
+
+# ---- citation ranges ----
+
+@pytest.mark.parametrize("raw, expected", [
+    ("See 【4-6】.", "See [4, 5, 6]."),
+    ("See [2, 4–6].", "See [2, 4, 5, 6]."),
+    ("See [4—6][7].", "See [4, 5, 6, 7]."),
+    ("See [1-10].", "See [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]."),
+    ("See [1-12].", "See [1-12]."),          # spans more than 10: left alone
+    ("See [2, 1-20].", "See [2, 1-20]."),
+    ("See [6-4].", "See [6-4]."),            # backwards
+    ("In [2019-2021] sales rose.", "In [2019-2021] sales rose."),  # year-like
+    ("Policy 2019-2021 [3]", "Policy 2019-2021 [3]"),
+    ("【1†L4-L9】", "[1]"),
+])
+def test_citation_ranges_are_expanded(raw, expected):
+    from app.services.citations import normalize_markers
+    assert normalize_markers(raw) == expected
+
+
+def test_range_citations_select_their_sources():
+    from app.services.citations import select_citations
+    chunks = [{"filename": f"f{i}.pdf", "chunk_index": 0} for i in range(6)]
+    assert [c["n"] for c in select_citations("Answer 【2-4】.", chunks)] == [2, 3, 4]

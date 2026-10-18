@@ -174,18 +174,27 @@ const markdownComponents = {
 };
 
 // Same rule as app/services/citations.py: models sometimes write 【1】, ［1］,
-// [^1] or [source 1]; show them all as [1] so they match the source chips.
+// [^1], [source 1] or ranges like 【4-6】; show them all as [1] / [4, 5, 6] so
+// they match the source chips. Ranges over 10 numbers are left as written.
 const CITATION_VARIANT =
-  /[\[【［〔]\s*(?:\^|source\s*)?(\d{1,2}(?:\s*[,，、]\s*\d{1,2})*)(?:\s*†[^\]】］〕]*)?\s*[\]】］〕]/gi;
+  /[\[【［〔]\s*(?:\^|source\s*)?(\d{1,2}(?:\s*[-–—]\s*\d{1,2})?(?:\s*[,，、]\s*\d{1,2}(?:\s*[-–—]\s*\d{1,2})?)*)(?:\s*†[^\]】］〕]*)?\s*[\]】］〕]/gi;
+const MAX_RANGE = 10;
+
+function expandCitation(match, numbers) {
+  const out = [];
+  for (const part of numbers.split(/\s*[,，、]\s*/)) {
+    const [low, high = low] = part.split(/\s*[-–—]\s*/).map(Number);
+    if (low > high || high - low + 1 > MAX_RANGE) return match;
+    for (let n = low; n <= high; n += 1) if (!out.includes(n)) out.push(n);
+  }
+  return `[${out.join(", ")}]`;
+}
 
 // Adjacent markers ("[3][3]", "[1] [2]") collapse into one, as on the server.
 const MARKER_RUN = /\[\d{1,2}(?:, \d{1,2})*\](?:\s*,?\s*\[\d{1,2}(?:, \d{1,2})*\])+(?!\()/g;
 
 function normalizeMarkers(text) {
-  const canonical = (text || "").replace(
-    CITATION_VARIANT,
-    (_, numbers) => `[${numbers.split(/\s*[,，、]\s*/).join(", ")}]`,
-  );
+  const canonical = (text || "").replace(CITATION_VARIANT, expandCitation);
   return canonical.replace(MARKER_RUN, (run) => {
     const numbers = [...new Set(run.match(/\d{1,2}/g).map(Number))].sort((a, b) => a - b);
     return `[${numbers.join(", ")}]`;

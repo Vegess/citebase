@@ -18,11 +18,13 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.models.models import Org, OrgInvite, User
 from app.models.schemas import AcceptInviteRequest, InvitePreview, SignupRequest, TokenResponse
 from app.routes.chat import limiter
-from app.services import mailer, audit
+from app.services import mailer, audit, waitlist
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 INVITE_INVALID = "This invite link is invalid, expired, or has already been used."
+ACCESS_INVALID = "This sign-up link is invalid, expired, or has already been used."
+WAITLIST_ONLY = "Citebase is invite-only right now. Request access and we'll email you a sign-up link."
 
 
 def normalize_email(email: str) -> str:
@@ -46,6 +48,16 @@ def _as_utc(value: datetime) -> datetime:
 @limiter.limit("10/minute", key_func=get_remote_address)
 def signup(request: Request, body: SignupRequest, db: Session = Depends(get_db)):
     email = normalize_email(body.email)
+    # An approved access request's token proves the email (it was emailed there).
+    access = None
+    if body.access_token:
+        access = waitlist.load_by_token(db, body.access_token)
+        if access is None:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail=ACCESS_INVALID)
+        if access.email != email:
+            raise HTTPException(status_code=400, detail="This sign-up link is for a different email address.")
+    elif waitlist.enabled():
+        raise HTTPException(status_code=403, detail=WAITLIST_ONLY)
     if _email_taken(db, email):
         raise HTTPException(status_code=409, detail="Email already registered")
 
@@ -53,13 +65,17 @@ def signup(request: Request, body: SignupRequest, db: Session = Depends(get_db))
     db.add(org)
     db.flush()
 
-    user = User(email=email, hashed_password=hash_password(body.password), org_id=org.id, role="OWNER")
+    user = User(email=email, hashed_password=hash_password(body.password), org_id=org.id, role="OWNER",
+                email_verified_at=datetime.now(timezone.utc) if access else None)
     db.add(user)
     db.flush()
     audit.record(db, org_id=org.id, actor_id=user.id, action="org.created", target_type="org", target_id=org.id)
+    if access is not None and not waitlist.consume_token(db, access, body.access_token):
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=ACCESS_INVALID)
     db.commit()
 
-    if mailer.enabled():
+    if mailer.enabled() and access is None:
         # Sign-up doesn't prove the address; until the link is used the account
         # can't invite anyone (stops someone squatting an email and planting a
         # second account in "their" workspace).

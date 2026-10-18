@@ -6,6 +6,7 @@ import { Button } from "./ui";
 import { GitHubMark, GoogleMark, Icon } from "./icons";
 import { Wordmark } from "./Chrome";
 import { useDialog } from "../hooks/useDialog";
+import { useSignupMode } from "../hooks/useSignupMode";
 
 const PROVIDER_LABEL = { google: "Google", github: "GitHub" };
 
@@ -42,6 +43,92 @@ function Input({ label, ...props }) {
   );
 }
 
+/** Approved access requests get a link to /signup#access=<token>. */
+function readAccessToken() {
+  return new URLSearchParams(window.location.hash.slice(1)).get("access");
+}
+
+/** Waitlist mode: ask for access instead of creating a workspace. */
+export function RequestAccessForm({ onSignIn }) {
+  const [form, setForm] = useState({ name: "", email: "", company: "", reason: "" });
+  const [sent, setSent] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const reply = await api.requestAccess({
+        name: form.name,
+        email: form.email,
+        company: form.company || null,
+        reason: form.reason || null,
+      });
+      setSent(reply.detail);
+    } catch (err) {
+      setError(err.status === 429 ? "Too many requests from here. Please try again later." : err.detail || "Couldn't send your request.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="font-display text-2xl text-ink">Request access</h2>
+      <p className="mt-1 text-sm text-muted">
+        Citebase is invite-only while in beta. Tell us a little about you and we'll email you a sign-up link.
+      </p>
+      {sent ? (
+        <p role="status" className="mt-6 rounded-md bg-signal-soft px-3 py-3 text-sm text-ink">
+          {sent}
+        </p>
+      ) : (
+        <form onSubmit={submit} className="mt-6 space-y-4">
+          <Input label="Name" required maxLength={120} autoComplete="name" value={form.name} onChange={set("name")} />
+          <Input
+            label="Work email"
+            type="email"
+            required
+            autoComplete="email"
+            value={form.email}
+            onChange={set("email")}
+            placeholder="name@company.com"
+          />
+          <Input label="Company (optional)" maxLength={120} autoComplete="organization" value={form.company} onChange={set("company")} />
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-ink">What would you use it for? (optional)</span>
+            <textarea
+              rows={3}
+              maxLength={2000}
+              value={form.reason}
+              onChange={set("reason")}
+              className="w-full rounded-md border border-rule bg-surface px-3 py-2.5 text-sm text-ink focus:border-signal focus:outline-none"
+            />
+          </label>
+          {error && (
+            <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <Button type="submit" className="w-full py-2.5" disabled={busy}>
+            {busy ? "Sending…" : "Request access"}
+          </Button>
+        </form>
+      )}
+      <p className="mt-5 text-center text-sm text-muted">
+        Already have an account?{" "}
+        <button type="button" className="text-signal" onClick={onSignIn}>
+          Sign in
+        </button>
+      </p>
+      <p className="mt-3 text-center text-xs text-muted">Joining your team? Use the invite link your admin sent you.</p>
+    </div>
+  );
+}
+
 /**
  * Email-first sign-in, as on Coursera/LeetCode: social buttons on top, then
  * one email field; the password (and workspace name for new accounts) appear
@@ -60,10 +147,28 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const passwordRef = useRef(null);
+  const signupMode = useSignupMode();
+  const [accessToken] = useState(readAccessToken);
+  const [accessEmail, setAccessEmail] = useState("");
 
   useEffect(() => {
     api.getProviders().then((r) => setProviders(r.providers)).catch(() => setProviders([]));
   }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    // Keep the token out of the address bar and browser history.
+    window.history.replaceState(null, "", window.location.pathname);
+    setMode("signup");
+    api
+      .previewAccess(accessToken)
+      .then((access) => {
+        setAccessEmail(access.email);
+        setEmail(access.email);
+        setStep("details");
+      })
+      .catch((err) => setError(err.detail || "This sign-up link can't be used."));
+  }, [accessToken]);
 
   useEffect(() => {
     if (step === "details") passwordRef.current?.focus();
@@ -79,7 +184,7 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
     setBusy(true);
     try {
       if (mode === "signin") await signIn(email, password);
-      else await register(email, password, orgName);
+      else await register(email, password, orgName, accessToken);
       onDone?.();
       // Back to the page that sent them to sign in, if any.
       navigate(location.state?.from?.pathname || "/home", { replace: true });
@@ -98,6 +203,10 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
     setError("");
     setStep(email ? "details" : "email");
   };
+
+  if (mode === "signup" && signupMode === "waitlist" && !accessToken) {
+    return <RequestAccessForm onSignIn={() => switchMode("signin")} />;
+  }
 
   return (
     <div>
@@ -128,6 +237,9 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="name@company.com"
+          readOnly={Boolean(accessEmail)}
+          disabled={Boolean(accessEmail)}
+          title={accessEmail ? "Your access was approved for this email." : undefined}
         />
         {step === "details" && (
           <>
@@ -176,7 +288,7 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
           <>
             New to Citebase?{" "}
             <button type="button" className="text-signal" onClick={() => switchMode("signup")}>
-              Create a workspace
+              {signupMode === "waitlist" ? "Request access" : "Create a workspace"}
             </button>
           </>
         ) : (

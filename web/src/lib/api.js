@@ -115,11 +115,33 @@ export const oauthStartUrl = (provider) => `${BASE}/auth/oauth/${provider}/start
 export const deleteWorkspace = (token, confirmName) =>
   request("/org", { token, method: "DELETE", body: { confirm_name: confirmName } });
 
-export const signup = (email, password, orgName) =>
+export const signup = (email, password, orgName, accessToken) =>
   request("/auth/signup", {
     method: "POST",
-    body: { email, password, org_name: orgName },
+    body: { email, password, org_name: orgName, ...(accessToken ? { access_token: accessToken } : {}) },
   });
+
+/* ---------------- waitlist ---------------- */
+
+let signupConfig = null;
+/** "open" or "waitlist". Fetched once; falls back to "open" if the API is unreachable. */
+export const getSignupMode = () => {
+  signupConfig ??= request("/auth/signup-config")
+    .then((r) => r.mode)
+    .catch(() => {
+      signupConfig = null;
+      return "open";
+    });
+  return signupConfig;
+};
+export const requestAccess = (body) => request("/auth/access-requests", { method: "POST", body });
+export const previewAccess = (accessToken) => request(`/auth/access/${encodeURIComponent(accessToken)}`);
+export const listAccessRequests = (token, status) =>
+  request(`/admin/access-requests${status ? `?status=${status}` : ""}`, { token });
+export const approveAccessRequest = (token, id) =>
+  request(`/admin/access-requests/${id}/approve`, { token, method: "POST" });
+export const rejectAccessRequest = (token, id) =>
+  request(`/admin/access-requests/${id}/reject`, { token, method: "POST" });
 
 export const login = (email, password) =>
   request("/auth/login", {
