@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Wordmark } from "../components/Chrome";
-import { Button, Field } from "../components/ui";
+import { Button, Field, PasswordInput } from "../components/ui";
 import * as api from "../lib/api";
 
 function AuthShell({ title, blurb, children, footer }) {
@@ -87,9 +87,8 @@ export function AcceptInvitePage() {
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Field label="Email" type="email" value={invite?.email ?? ""} disabled readOnly />
-          <Field
+          <PasswordInput
             label="Password"
-            type="password"
             autoComplete="new-password"
             required
             minLength={8}

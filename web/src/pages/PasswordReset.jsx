@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, Field } from "../components/ui";
+import { Button, Field, PasswordInput } from "../components/ui";
 import { Wordmark } from "../components/Chrome";
 
 function Shell({ title, children }) {
@@ -129,7 +129,7 @@ export function ResetPasswordPage() {
             For <span className="font-medium text-ink">{email}</span>. Every device signed in to this account will be
             signed out.
           </p>
-          <Field label="New password" type="password" autoComplete="new-password" required minLength={8} value={password}
+          <PasswordInput label="New password" autoComplete="new-password" required minLength={8} value={password}
             onChange={(e) => setPassword(e.target.value)} hint="At least 8 characters." />
           {error && <p role="alert" className="text-sm text-danger">{error}</p>}
           <Button type="submit" className="w-full py-2.5" disabled={busy}>

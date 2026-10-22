@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button, Field, LoadError, useToast } from "../components/ui";
+import { Button, Field, LoadError, PasswordInput, useToast } from "../components/ui";
 import { GitHubMark, GoogleMark, Icon } from "../components/icons";
 
 const PROVIDER = {
@@ -60,7 +60,7 @@ function PasswordForm({ account, onChanged }) {
   return (
     <form onSubmit={submit} className="grid max-w-md gap-3">
       {account.password_set ? (
-        <Field label="Current password" type="password" autoComplete="current-password" required value={current}
+        <PasswordInput label="Current password" autoComplete="current-password" required value={current}
           onChange={(e) => setCurrent(e.target.value)} />
       ) : (
         <p className="text-sm text-muted">
@@ -68,7 +68,7 @@ function PasswordForm({ account, onChanged }) {
           to also sign in with your email.
         </p>
       )}
-      <Field label={account.password_set ? "New password" : "Password"} type="password" autoComplete="new-password"
+      <PasswordInput label={account.password_set ? "New password" : "Password"} autoComplete="new-password"
         required minLength={8} value={next} onChange={(e) => setNext(e.target.value)} hint="At least 8 characters." />
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       <div>

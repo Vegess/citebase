@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useState } from "react";
+import { Icon } from "./icons";
 
 /* ---------------- Button ---------------- */
 
@@ -31,6 +32,35 @@ export function Field({ label, hint, ...props }) {
         className="w-full rounded-md border border-rule bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-signal focus:outline-none"
         {...props}
       />
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
+    </label>
+  );
+}
+
+/* ---------------- Password input ---------------- */
+
+/** Password field with a show/hide toggle. Takes the same props as Field. */
+export function PasswordInput({ label, hint, className = "py-2", ...props }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
+      <span className="relative block">
+        <input
+          className={`w-full rounded-md border border-rule bg-surface px-3 pr-10 text-sm text-ink placeholder:text-muted focus:border-signal focus:outline-none ${className}`}
+          {...props}
+          type={visible ? "text" : "password"}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? "Hide password" : "Show password"}
+          aria-pressed={visible}
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted hover:text-ink focus-visible:text-ink"
+        >
+          {visible ? <Icon.EyeOff width={18} height={18} /> : <Icon.Eye width={18} height={18} />}
+        </button>
+      </span>
       {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
     </label>
   );

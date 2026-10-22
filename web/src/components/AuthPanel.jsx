@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
-import { Button } from "./ui";
+import { Button, PasswordInput } from "./ui";
 import { GitHubMark, GoogleMark, Icon } from "./icons";
 import { Wordmark } from "./Chrome";
 import { useDialog } from "../hooks/useDialog";
@@ -253,10 +253,10 @@ export function AuthPanel({ initialMode = "signin", onDone }) {
                 placeholder="Acme Insurance"
               />
             )}
-            <Input
+            <PasswordInput
               ref={passwordRef}
+              className="py-2.5"
               label="Password"
-              type="password"
               autoComplete={mode === "signin" ? "current-password" : "new-password"}
               required
               minLength={mode === "signup" ? 8 : undefined}
