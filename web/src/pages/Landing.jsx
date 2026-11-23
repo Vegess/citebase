@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Wordmark } from "../components/Chrome";
 import { AuthModal } from "../components/AuthPanel";
 import { useAuth } from "../context/AuthContext";
 import { Icon } from "../components/icons";
 import { useSignupMode } from "../hooks/useSignupMode";
+import { HeroAnimation } from "../components/HeroAnimation";
+import { Reveal } from "../components/Reveal";
 
 /* ------------------------------------------------------------------ */
 /* Content                                                             */
@@ -127,59 +129,13 @@ function renderBold(text) {
   );
 }
 
-function prefersReducedMotion() {
-  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-}
-
-/** The product, demonstrated: question → research steps → cited answer. */
-function LiveDemo({ demo }) {
-  const [phase, setPhase] = useState(prefersReducedMotion() ? 99 : 0);
-
-  useEffect(() => {
-    if (prefersReducedMotion()) return undefined;
-    setPhase(0);
-    const timers = [400, 1300, 2200, 3200].map((ms, i) => setTimeout(() => setPhase(i + 1), ms));
-    return () => timers.forEach(clearTimeout);
-  }, [demo]);
-
-  return (
-    <figure className="rounded-xl bg-surface p-5 text-left shadow-2xl ring-1 ring-black/5 sm:p-6" aria-label="Example answer">
-      <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-lg rounded-br-sm bg-ink px-3.5 py-2 text-sm text-paper">{demo.q}</p>
-      </div>
-      <div className="mt-4 rounded-md border border-rule px-3 py-2 text-xs">
-        <p className="font-medium text-ink-soft">{phase >= 3 ? `Researched in ${demo.steps.length} step${demo.steps.length > 1 ? "s" : ""}` : "Researching across your documents…"}</p>
-        <ol className="mt-1.5 space-y-1">
-          {demo.steps.map((s, i) => (
-            <li key={s} className={`flex gap-2 transition-opacity duration-500 ${phase > i ? "opacity-100" : "opacity-0"}`}>
-              <span className="font-mono text-muted">{i + 1}.</span>
-              <span className="text-ink">{s}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-      <div className={`ruled-margin mt-4 transition-opacity duration-700 ${phase >= 3 ? "opacity-100" : "opacity-0"}`}>
-        <p className="text-[15px] leading-relaxed text-ink">{renderBold(demo.a)}</p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {demo.sources.map((file, i) => (
-            <span key={file} className="inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source">
-              <span className="opacity-60">{i + 1}</span>
-              {file}
-            </span>
-          ))}
-        </div>
-      </div>
-    </figure>
-  );
-}
-
 function SectionHeading({ eyebrow, title, sub, id }) {
   return (
-    <div id={id} className="mx-auto max-w-2xl scroll-mt-24 text-center">
+    <Reveal id={id} className="mx-auto max-w-2xl scroll-mt-24 text-center">
       {eyebrow && <p className="font-mono text-[11px] uppercase tracking-widest text-source">{eyebrow}</p>}
       <h2 className="mt-2 font-display text-3xl leading-tight text-ink md:text-4xl">{title}</h2>
       {sub && <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">{sub}</p>}
-    </div>
+    </Reveal>
   );
 }
 
@@ -332,21 +288,21 @@ export default function LandingPage() {
             </div>
             <p className="mt-4 text-sm text-white/75">{waitlist ? "Invite-only beta · Free while in beta · No card needed" : "Free during beta · Sign in with Google or GitHub · No card needed"}</p>
           </div>
-          <LiveDemo demo={a.demo} />
+          <HeroAnimation demo={a.demo} />
         </div>
       </section>
 
       {/* Capability strip */}
       <section className="border-b border-rule bg-surface">
         <div className="mx-auto grid max-w-6xl gap-px bg-rule sm:grid-cols-2 lg:grid-cols-3">
-          {CAPABILITIES.map(({ icon: I, title, body }) => (
-            <div key={title} className="bg-surface p-6">
+          {CAPABILITIES.map(({ icon: I, title, body }, i) => (
+            <Reveal key={title} className="bg-surface p-6" delay={(i % 3) * 80}>
               <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-signal-soft text-signal">
                 <I />
               </span>
               <h3 className="mt-4 text-[15px] font-semibold text-ink">{title}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-muted">{body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </section>
@@ -364,8 +320,8 @@ export default function LandingPage() {
               ["Without Citebase", ["Search five shared drives for the right version", "Wait a day for HR or legal to reply", "Two policies say different things; nobody notices"], "bg-surface"],
               ["With a generic chatbot", ["Fluent answers with no source", "Doesn't know your company's rules", "Your documents leave your control"], "bg-surface"],
               ["With Citebase", ["Answers from your own files, cited", "Agents research across documents and flag contradictions", "Workspace-isolated, role-controlled, measurable"], "bg-signal-soft ring-1 ring-signal/30"],
-            ].map(([title, points, style]) => (
-              <div key={title} className={`rounded-xl border border-rule p-6 ${style}`}>
+            ].map(([title, points, style], i) => (
+              <Reveal key={title} className={`rounded-xl border border-rule p-6 ${style}`} delay={i * 80}>
                 <h3 className="font-semibold text-ink">{title}</h3>
                 <ul className="mt-3 space-y-2 text-sm text-ink-soft">
                   {points.map((p) => (
@@ -375,7 +331,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </Reveal>
             ))}
           </div>
         </section>
@@ -430,12 +386,12 @@ export default function LandingPage() {
           <SectionHeading id="how" eyebrow="How it works" title="From PDF to verified answer in three steps" />
           <ol className="mt-12 grid gap-6 md:grid-cols-3">
             {STEPS.map(({ icon: I, title, body }, i) => (
-              <li key={title} className="relative rounded-xl border border-rule bg-surface p-6">
+              <Reveal as="li" key={title} className="relative rounded-xl border border-rule bg-surface p-6" delay={i * 100}>
                 <span className="absolute -top-3 left-6 rounded-full bg-ink px-2.5 py-0.5 font-mono text-[11px] text-paper">0{i + 1}</span>
                 <I className="text-signal" />
                 <h3 className="mt-3 font-semibold text-ink">{title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted">{body}</p>
-              </li>
+              </Reveal>
             ))}
           </ol>
         </section>
@@ -498,11 +454,11 @@ export default function LandingPage() {
               ["18 / 18", "benchmark questions with the right document in the top results"],
               ["24 / 24", "questions routed correctly between quick answers and whole-document tasks"],
               ["125+", "automated tests, including workspace isolation and concurrency"],
-            ].map(([n, label]) => (
-              <div key={label} className="rounded-xl border border-rule bg-surface p-6 text-center">
+            ].map(([n, label], i) => (
+              <Reveal key={label} className="rounded-xl border border-rule bg-surface p-6 text-center" delay={i * 80}>
                 <p className="font-display text-4xl text-ink">{n}</p>
                 <p className="mt-2 text-sm text-muted">{label}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </section>
@@ -575,8 +531,8 @@ export default function LandingPage() {
                 { name: "Beta", price: "Free", note: "Available now", points: ["All features, including agents", "Unlimited documents up to 20 MB each", "Daily question limits"], cta: "Start free", primary: true },
                 { name: "Team", price: "Coming soon", note: "For growing teams", points: ["Higher daily limits", "Drive & Notion sync", "Priority support"], cta: "Join the beta", primary: false },
                 { name: "Enterprise", price: "Talk to us", note: "Custom deployment", points: ["Single sign-on", "Dedicated infrastructure", "Custom retention"], cta: "Join the beta", primary: false },
-              ].map((p) => (
-                <div key={p.name} className={`flex flex-col rounded-xl bg-surface p-6 ${p.primary ? "ring-2 ring-signal" : "border border-rule"}`}>
+              ].map((p, i) => (
+                <Reveal key={p.name} className={`flex flex-col rounded-xl bg-surface p-6 ${p.primary ? "ring-2 ring-signal" : "border border-rule"}`} delay={i * 80}>
                   <p className="text-sm font-medium text-muted">{p.name}</p>
                   <p className="mt-1 font-display text-3xl text-ink">{p.price}</p>
                   <p className="mt-1 text-xs text-muted">{p.note}</p>
@@ -592,7 +548,7 @@ export default function LandingPage() {
                   >
                     {waitlist ? "Request access" : p.cta}
                   </button>
-                </div>
+                </Reveal>
               ))}
             </div>
           </div>

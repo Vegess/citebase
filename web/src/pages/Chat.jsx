@@ -25,7 +25,8 @@ function Sources({ citations, onOpen }) {
           key={`${c.filename}-${c.chunk_index}-${i}`}
           onClick={() => onOpen?.(c)}
           title="Show the passage this came from"
-          className="inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source transition-colors hover:border-source/50 hover:bg-source/15"
+          style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
+          className="chip-pop inline-flex items-center gap-1.5 rounded-sm border border-source/20 bg-source-soft px-2 py-1 font-mono text-[11px] text-source transition-colors hover:border-source/50 hover:bg-source/15"
         >
           <span className="opacity-60">{c.n ?? i + 1}</span>
           <span className="max-w-[220px] truncate">{c.filename}</span>
@@ -79,8 +80,8 @@ function PassagePanel({ citation, question, onClose }) {
 
   return (
     <div ref={dialog} className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Source passage">
-      <div className="absolute inset-0 bg-ink/30" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-lg flex-col bg-surface shadow-2xl">
+      <div className="fade-in absolute inset-0 bg-ink/30" onClick={onClose} />
+      <aside className="panel-slide relative flex h-full w-full max-w-lg flex-col bg-surface shadow-2xl">
         <header className="flex items-start gap-3 border-b border-rule px-5 py-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">Source [{citation.n}]</p>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pipeline } from "../components/Pipeline";
 import { Link } from "react-router-dom";
 import { hasRole, useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
@@ -426,6 +427,7 @@ export default function DocumentsPage() {
                         <p className={`mt-1 text-xs ${IN_PROGRESS.has(doc.status) ? "text-muted" : "text-danger"}`}>{doc.error}</p>
                       )}
                     </div>
+                    <span className="mt-1.5 hidden sm:block"><Pipeline status={doc.status} /></span>
                     <StatusBadge status={doc.status} />
                     {canRemove(doc) && (
                       <Button variant="ghost" size="sm" onClick={() => handleDelete(doc)} className="text-danger">

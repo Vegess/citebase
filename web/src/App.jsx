@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { ViewTransitionRouter } from "./components/ViewTransitionRouter";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./components/ui";
 import { AdminOnly, AppLayout, FullPageNote, GuestOnly, PlatformAdminOnly, ProtectedRoute } from "./components/Chrome";
@@ -38,7 +39,7 @@ function InApp({ children }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <ViewTransitionRouter>
       <AuthProvider>
         <ToastProvider>
           <ServerWake />
@@ -68,6 +69,6 @@ export default function App() {
           </Suspense>
         </ToastProvider>
       </AuthProvider>
-    </BrowserRouter>
+    </ViewTransitionRouter>
   );
 }
