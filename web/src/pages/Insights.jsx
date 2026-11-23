@@ -3,8 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import * as api from "../lib/api";
 import { Button, EmptyState, LoadError, useToast } from "../components/ui";
+import { DailyLine, OutcomeBars, TopDocuments } from "../components/charts";
+import { useCountUp } from "../hooks/motion";
 
 const RANGES = [7, 30, 90];
+
+/** A number that counts up; `format` turns the animated integer into the shown text. */
+function Counted({ value, format = String }) {
+  const n = useCountUp(value);
+  return <>{format(n)}</>;
+}
 
 function StatTile({ label, value, hint }) {
   return (
@@ -13,41 +21,6 @@ function StatTile({ label, value, hint }) {
       <p className="mt-1 font-display text-3xl text-ink">{value}</p>
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
-  );
-}
-
-/** Single-series daily bars: one hue, no legend (the title names the series). */
-function DailyBars({ days }) {
-  const max = Math.max(1, ...days.map((d) => d.questions));
-  return (
-    <figure className="rounded-lg border border-rule bg-surface p-4">
-      <figcaption className="mb-3 text-sm font-medium text-ink">Questions per day</figcaption>
-      <div className="flex h-28 items-end gap-[2px]" role="img" aria-label="Questions asked per day">
-        {days.map((d) => (
-          <div key={d.date} className="group relative flex h-full flex-1 items-end">
-            <div
-              className="w-full rounded-t-[4px] bg-signal/80 transition-colors group-hover:bg-signal"
-              style={{ height: `${d.questions ? Math.max(4, (d.questions / max) * 100) : 0}%` }}
-            />
-            <span className="pointer-events-none absolute -top-7 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-sm bg-ink px-1.5 py-0.5 font-mono text-[10px] text-paper group-hover:block">
-              {d.date.slice(5)} · {d.questions}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-muted">
-        <span>{days[0]?.date.slice(5)}</span>
-        <span>{days[days.length - 1]?.date.slice(5)}</span>
-      </div>
-      <table className="sr-only">
-        <caption>Questions per day</caption>
-        <tbody>
-          {days.map((d) => (
-            <tr key={d.date}><td>{d.date}</td><td>{d.questions}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </figure>
   );
 }
 
@@ -96,7 +69,6 @@ export default function InsightsPage() {
   }
 
   const t = data?.totals;
-  const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10">
@@ -139,14 +111,24 @@ export default function InsightsPage() {
       ) : (
         <>
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile label="Questions" value={t.questions} hint={`last ${data.days} days`} />
-            <StatTile label="Answered from your documents" value={pct(t.answer_rate)} hint={`${t.answered} of ${t.questions}`} />
-            <StatTile label="Not in your documents" value={t.not_in_documents} hint="see knowledge gaps below" />
+            <StatTile label="Questions" value={<Counted value={t.questions} />} hint={`last ${data.days} days`} />
+            <StatTile label="Answered from your documents" value={t.answer_rate == null ? "—" : <Counted value={Math.round(t.answer_rate * 100)} format={(n) => `${n}%`} />} hint={`${t.answered} of ${t.questions}`} />
+            <StatTile label="Not in your documents" value={<Counted value={t.not_in_documents} />} hint="see knowledge gaps below" />
             <StatTile label="Feedback" value={`👍 ${t.helpful} · 👎 ${t.not_helpful}`} hint={t.degraded ? `${t.degraded} degraded answers` : "from your team"} />
           </div>
 
           <div className="mt-4">
-            <DailyBars days={data.daily} />
+            <DailyLine days={data.daily} />
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <OutcomeBars totals={t} />
+            {data.top_documents.length > 0 ? (
+              <TopDocuments docs={data.top_documents} />
+            ) : (
+              <Section title="Top cited documents">
+                <p className="text-sm text-muted">No answers have cited a document yet.</p>
+              </Section>
+            )}
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -183,29 +165,6 @@ export default function InsightsPage() {
                   </li>
                 ))}
               </ul>
-            </Section>
-
-            <Section title="Documents doing the work" hint="How many answers cited each file.">
-              {data.top_documents.length === 0 ? (
-                <p className="text-sm text-muted">No answers have cited a document yet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {data.top_documents.map((d) => (
-                    <li key={d.filename}>
-                      <div className="flex justify-between text-sm">
-                        <span className="truncate text-ink">{d.filename}</span>
-                        <span className="font-mono text-[11px] text-muted">{d.answers}</span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-rule-soft">
-                        <div
-                          className="h-1.5 rounded-full bg-source"
-                          style={{ width: `${(d.answers / data.top_documents[0].answers) * 100}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </Section>
 
             <Section title="Marked not helpful" hint="Worth a look: a missing document or an unclear policy.">
