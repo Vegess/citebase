@@ -132,7 +132,7 @@ Frontend runs at http://localhost:5173.
 pytest -q --basetemp=.pytest-tmp
 ```
 
-All 117 tests should pass.
+All 206 tests should pass.
 
 ## Stack Pinned Versions (July 2026)
 
